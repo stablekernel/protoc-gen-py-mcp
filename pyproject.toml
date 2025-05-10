@@ -12,3 +12,6 @@ dependencies = [
 
 [project.scripts]
 protoc-gen-py-mcp = "protoc_gen_py_mcp.cli.cli:app"
+
+[project.urls]
+Repository = "https://github.com/stablekernel/protoc-gen-py-mcp"
