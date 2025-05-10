@@ -1,0 +1,10 @@
+[project]
+name = "protoc-gen-py-mcp"
+version = "0.0.1"
+description = "Build MCP servers from proto files"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastmcp>=2.3.1",
+    "protobuf>=6.30.2",
+]
