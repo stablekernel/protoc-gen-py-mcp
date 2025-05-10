@@ -5,13 +5,10 @@ description = "Build MCP servers from proto files"
 requires-python = ">=3.10"
 readme = "README.md"
 license = "Apache-2.0"
-dependencies = [
-    "fastmcp>=2.3.1",
-    "protobuf>=6.30.2",
-]
+dependencies = ["fastmcp>=2.3.1", "protobuf>=6.30.2"]
 
 [project.scripts]
-protoc-gen-py-mcp = "protoc_gen_py_mcp.cli.cli:app"
+protoc-gen-py-mcp = "protoc_gen_py_mcp.cli.cli:main"
 
 [project.urls]
 Repository = "https://github.com/stablekernel/protoc-gen-py-mcp"
