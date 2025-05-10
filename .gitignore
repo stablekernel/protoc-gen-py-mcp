@@ -1,3 +1,6 @@
 /.idea
 .envrc
 .direnv
+build/
+*.egg-info/
+*__pycache__/
