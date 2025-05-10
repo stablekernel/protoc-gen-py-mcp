@@ -14,7 +14,7 @@ def main():
     response = plugin.CodeGeneratorResponse()
     for proto_file in request.proto_file:
         f = response.file.add()
-        f.name = proto_file.name.replace(".proto", "_pb2_generated.py")
+        f.name = proto_file.name.replace(".proto", "_mcp_pb2_generated.py")
         f.content = f"# Generated from {proto_file.name}\n"
 
     # Write response to stdout
