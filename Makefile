@@ -13,7 +13,7 @@ clean:
 	rm -f *_pb2.py *_pb2_grpc.py
 
 run-server:
-	python server.py
+	python grpc_server.py
 
 run-client:
-	python client.py
+	python grpc_client.py
