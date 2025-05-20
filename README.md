@@ -10,6 +10,16 @@ This is a [Topeka](#topeka) plugin for the [protoc compiler](https://grpc.io/doc
 ## Running the plugin
 
 [TODO: add instructions to run the plugin]
+```bash
+# Create a virtual environment
+uv venv
+# Activate the virtual environment
+source .venv/bin/activate
+# Install the plugin
+uv pip install -e .
+# Generate python files from proto files
+make
+```
 
 ## Debugging the plugin
 
@@ -47,4 +57,4 @@ while maintaining stable MCP server APIs.
 
 [Stable Kernel](https://stablekernel.com) is the primary maintainer of this project and sponsor of the plugins, though we welcome outside contributions.
 
-[Stable Kernel](https://stablekernel.com) is a digital transformation company building solutions that power LLM enablement for growing businesses. We have a track record of helping our partners solve their biggest challenges on their digital journey, whether they need insights or implementation. Every day, millions of people rely on software that we developed, and our custom software development and technology services have been trusted by some of the most innovative Fortune 500 companies in the world. 
+[Stable Kernel](https://stablekernel.com) is a digital transformation company building solutions that power LLM enablement for growing businesses. We have a track record of helping our partners solve their biggest challenges on their digital journey, whether they need insights or implementation. Every day, millions of people rely on software that we developed, and our custom software development and technology services have been trusted by some of the most innovative Fortune 500 companies in the world.

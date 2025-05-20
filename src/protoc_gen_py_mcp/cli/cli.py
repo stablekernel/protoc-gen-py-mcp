@@ -3,7 +3,7 @@ from google.protobuf.compiler import plugin_pb2 as plugin
 from google.protobuf import descriptor_pb2
 
 # Suffix for generated Python MCP files
-_OUTPUT_FILE_SUFFIX = "_mcp_pb2_generated.py"
+_OUTPUT_FILE_SUFFIX = "_pb2_mpc.py"
 
 def main() -> None:
     """
@@ -21,7 +21,7 @@ def main() -> None:
 
     # Prepare response
     response = plugin.CodeGeneratorResponse()
-    
+
     # Supported features (optional, but good practice)
     response.supported_features = plugin.CodeGeneratorResponse.Feature.FEATURE_PROTO3_OPTIONAL
 
@@ -34,7 +34,7 @@ def main() -> None:
             continue
 
         output_filename = proto_file.name.replace(".proto", _OUTPUT_FILE_SUFFIX)
-        
+
         # Basic content generation
         # TODO: Implement actual MCP server stub generation logic here
         content = f"# Generated from {proto_file.name}\n"
