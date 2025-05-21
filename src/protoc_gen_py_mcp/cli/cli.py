@@ -3,7 +3,7 @@ from google.protobuf.compiler import plugin_pb2 as plugin
 from google.protobuf import descriptor_pb2
 
 # Suffix for generated Python MCP files
-_OUTPUT_FILE_SUFFIX = "_pb2_mpc.py"
+_OUTPUT_FILE_SUFFIX = "_pb2_mcp.py"
 
 def main() -> None:
     """
@@ -39,6 +39,11 @@ def main() -> None:
         # TODO: Implement actual MCP server stub generation logic here
         content = f"# Generated from {proto_file.name}\n"
         content += f"# Output to: {output_filename}\n\n"
+        content += f"from fastmcp import FastMCP\n\n"
+        # content += f"class {proto_file.name.replace('.proto', '')}Server(FastMCP):\n"
+        # content += f"    def __init__(self):\n"
+        # content += f"        super().__init__()\n"
+        # content += f"        self.register_service({proto_file.name.replace('.proto', '')}Service)\n"
         content += "print(\"MCP Python stub generated\")\n"
 
 
