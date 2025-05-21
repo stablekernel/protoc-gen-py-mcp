@@ -1,0 +1,46 @@
+[project]
+name = "protoc-gen-py-mcp"
+version = "0.0.1"
+description = "Build MCP servers from proto files"
+requires-python = ">=3.10"
+readme = "README.md"
+license = "Apache-2.0"
+dependencies = ["fastmcp>=2.3.1", "protobuf>=6.30.2"]
+
+[project.scripts]
+protoc-gen-py-mcp = "protoc_gen_py_mcp.cli.cli:main"
+
+[project.urls]
+Repository = "https://github.com/stablekernel/protoc-gen-py-mcp"
+
+[build-system]
+requires = ["hatchling", "uv-dynamic-versioning>=0.7.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+fallback-version = "0.0.0"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
+filterwarnings = []
+timeout = 3
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["**/__pycache__", ".venv", ".git", "dist"]
+pythonVersion = "3.10"
+pythonPlatform = "Linux"
+typeCheckingMode = "basic"
+reportMissingImports = true
+reportMissingTypeStubs = false
+useLibraryCodeForTypes = true
+venvPath = "."
+venv = ".venv"
