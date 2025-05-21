@@ -40,11 +40,15 @@ def main() -> None:
         content = f"# Generated from {proto_file.name}\n"
         content += f"# Output to: {output_filename}\n\n"
         content += f"from fastmcp import FastMCP\n\n"
+        content += f"mcp = FastMCP(\"MCP Server from Proto\")\n\n"
         # content += f"class {proto_file.name.replace('.proto', '')}Server(FastMCP):\n"
         # content += f"    def __init__(self):\n"
         # content += f"        super().__init__()\n"
         # content += f"        self.register_service({proto_file.name.replace('.proto', '')}Service)\n"
-        content += "print(\"MCP Python stub generated\")\n"
+        content += f"print(\"MCP Python stub generated\")\n\n"
+
+        content += f"if __name__ == \"__main__\":\n"
+        content += f"    mcp.run()\n\n"
 
 
         f = response.file.add()
