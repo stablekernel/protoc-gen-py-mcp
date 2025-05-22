@@ -13,24 +13,36 @@ def create_vibeservice_server() -> FastMCP:
     mcp = FastMCP("VibeService")
 
     @mcp.tool()
-    def set_vibe() -> dict:
+    def set_vibe(vibe: str) -> dict:
         """Tool for SetVibe RPC method."""
-        # TODO: Implement SetVibe logic
-        # Input type: .examples.v1.SetVibeRequest
-        # Output type: .examples.v1.SetVibeResponse
+        # Parameters:
+        #   vibe: str
         
-        # Placeholder response
-        return {"status": "not_implemented", "method": "SetVibe"}
+        # Construct request message
+        request = protos.example_pb2.SetVibeRequest()
+        request.vibe = vibe
+        
+        # TODO: Implement actual SetVibe logic here
+        # For now, create an empty response
+        response = protos.example_pb2.SetVibeResponse()
+        
+        # Convert response to dict for MCP
+        result = json_format.MessageToDict(response, use_integers_for_enums=True)
+        return result
     
     @mcp.tool()
     def get_vibe() -> dict:
         """Tool for GetVibe RPC method."""
-        # TODO: Implement GetVibe logic
-        # Input type: .examples.v1.GetVibeRequest
-        # Output type: .examples.v1.GetVibeResponse
+        # Construct request message
+        request = protos.example_pb2.GetVibeRequest()
         
-        # Placeholder response
-        return {"status": "not_implemented", "method": "GetVibe"}
+        # TODO: Implement actual GetVibe logic here
+        # For now, create an empty response
+        response = protos.example_pb2.GetVibeResponse()
+        
+        # Convert response to dict for MCP
+        result = json_format.MessageToDict(response, use_integers_for_enums=True)
+        return result
     
     return mcp
 
