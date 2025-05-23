@@ -147,6 +147,11 @@ class McpPlugin:
         Returns:
             Python type string (e.g., "str", "int", "List[str]", "Optional[int]")
         """
+        # Check if this is a map field first
+        if self._is_map_field(field):
+            map_types = self._get_map_types(field)
+            return f"Dict[{map_types['key']}, {map_types['value']}]"
+        
         # Handle repeated fields
         if field.label == descriptor_pb2.FieldDescriptorProto.LABEL_REPEATED:
             element_type = self._get_scalar_python_type(field)
@@ -195,15 +200,105 @@ class McpPlugin:
         if field.type in type_mapping:
             return type_mapping[field.type]
         elif field.type == descriptor_pb2.FieldDescriptorProto.TYPE_ENUM:
-            # For enums, we'll use int (could be enhanced to use specific enum types)
+            # For enums, we'll use int but add a comment about the enum type
+            # TODO: Could be enhanced to use Union[int, EnumClass] or specific enum types
             return "int"
         elif field.type == descriptor_pb2.FieldDescriptorProto.TYPE_MESSAGE:
-            # For messages, we'll use dict (could be enhanced to use specific message types)
+            # Check for well-known types
+            if field.type_name:
+                well_known_type = self._get_well_known_type(field.type_name)
+                if well_known_type:
+                    return well_known_type
+            # For other messages, we'll use dict
             return "dict"
         else:
             # Fallback for unknown types
             self.log_debug(f"Unknown field type {field.type} for field {field.name}, using Any")
             return "Any"
+    
+    def _is_map_field(self, field: descriptor_pb2.FieldDescriptorProto) -> bool:
+        """
+        Check if a field is a map field.
+        
+        Map fields are represented as repeated message fields where the message type
+        has map_entry=true option.
+        """
+        if (field.label != descriptor_pb2.FieldDescriptorProto.LABEL_REPEATED or 
+            field.type != descriptor_pb2.FieldDescriptorProto.TYPE_MESSAGE):
+            return False
+        
+        # Get the message type for this field
+        if field.type_name in self.message_types:
+            message_type = self.message_types[field.type_name]
+            # Check if this message type has the map_entry option set
+            return message_type.options.map_entry if message_type.options else False
+        
+        return False
+    
+    def _get_map_types(self, field: descriptor_pb2.FieldDescriptorProto) -> Dict[str, str]:
+        """
+        Get the key and value types for a map field.
+        
+        Returns a dict with 'key' and 'value' type strings.
+        """
+        if not self._is_map_field(field):
+            return {"key": "Any", "value": "Any"}
+        
+        # Get the map entry message type
+        if field.type_name not in self.message_types:
+            return {"key": "Any", "value": "Any"}
+        
+        map_entry = self.message_types[field.type_name]
+        
+        # Map entries have exactly two fields: key (field number 1) and value (field number 2)
+        key_field = None
+        value_field = None
+        
+        for entry_field in map_entry.field:
+            if entry_field.number == 1:
+                key_field = entry_field
+            elif entry_field.number == 2:
+                value_field = entry_field
+        
+        if not key_field or not value_field:
+            return {"key": "Any", "value": "Any"}
+        
+        # Get the Python types for key and value
+        key_type = self._get_scalar_python_type(key_field)
+        value_type = self._get_scalar_python_type(value_field)
+        
+        return {"key": key_type, "value": value_type}
+    
+    def _get_well_known_type(self, type_name: str) -> Optional[str]:
+        """
+        Get the Python type for well-known protobuf types.
+        
+        Args:
+            type_name: The fully qualified type name (e.g., ".google.protobuf.Timestamp")
+            
+        Returns:
+            Python type string if it's a well-known type, None otherwise
+        """
+        well_known_types = {
+            ".google.protobuf.Timestamp": "str",  # ISO 8601 timestamp string
+            ".google.protobuf.Duration": "str",   # Duration string (e.g., "3.5s")
+            ".google.protobuf.Any": "dict",       # Generic dict
+            ".google.protobuf.Value": "Any",      # Can be any JSON value
+            ".google.protobuf.Struct": "dict",    # JSON object
+            ".google.protobuf.ListValue": "List[Any]",  # JSON array
+            ".google.protobuf.Empty": "None",     # No content
+            ".google.protobuf.StringValue": "str",
+            ".google.protobuf.Int32Value": "int",
+            ".google.protobuf.Int64Value": "int",
+            ".google.protobuf.UInt32Value": "int",
+            ".google.protobuf.UInt64Value": "int",
+            ".google.protobuf.FloatValue": "float",
+            ".google.protobuf.DoubleValue": "float",
+            ".google.protobuf.BoolValue": "bool",
+            ".google.protobuf.BytesValue": "bytes",
+        }
+        
+        return well_known_types.get(type_name)
     
     def _analyze_message_fields(self, message_type_name: str) -> List[Dict[str, Any]]:
         """
@@ -228,20 +323,58 @@ class McpPlugin:
         message = self.message_types[message_type_name]
         fields = []
         
+        # Build a map of oneof names to check for real oneofs vs synthetic oneofs
+        real_oneofs = set()
+        synthetic_oneofs = set()
+        
+        for oneof_index, oneof in enumerate(message.oneof_decl):
+            # Check if this oneof contains any proto3_optional fields (synthetic oneof)
+            has_proto3_optional = False
+            for field in message.field:
+                if field.oneof_index == oneof_index and field.proto3_optional:
+                    has_proto3_optional = True
+                    break
+            
+            if has_proto3_optional:
+                synthetic_oneofs.add(oneof_index)
+                self.log_debug(f"Found synthetic oneof: {oneof.name}")
+            else:
+                real_oneofs.add(oneof_index)
+                self.log_debug(f"Found real oneof: {oneof.name}")
+        
+        # For real oneofs, we'll include all fields but mark them as part of a oneof
+        # The code generator will handle this by making them all optional and adding validation
+        
         for field in message.field:
-            # In proto3, fields are required by default unless explicitly marked as proto3_optional
-            # The LABEL_OPTIONAL might be set for all proto3 fields, but only proto3_optional matters
-            is_optional = field.proto3_optional
+            # Check if this field is part of a real oneof
+            is_part_of_real_oneof = False
+            oneof_name = None
+            if field.HasField('oneof_index') and field.oneof_index in real_oneofs:
+                is_part_of_real_oneof = True
+                oneof_name = message.oneof_decl[field.oneof_index].name
+            
+            # For oneof fields, treat them as optional
+            is_optional = field.proto3_optional or is_part_of_real_oneof
             is_repeated = field.label == descriptor_pb2.FieldDescriptorProto.LABEL_REPEATED
-            is_required = not is_optional and not is_repeated
+            is_map = self._is_map_field(field)
+            is_required = not is_optional and not is_repeated and not is_map
+            
+            # Get the base type and adjust for oneof/optional
+            base_type = self._get_python_type(field)
+            if is_part_of_real_oneof and not base_type.startswith('Optional['):
+                # Oneof fields should be Optional even if not proto3_optional
+                base_type = f"Optional[{base_type}]"
             
             field_info = {
                 'name': field.name,
-                'type': self._get_python_type(field),
+                'type': base_type,
                 'proto_type': field.type,
                 'required': is_required,
                 'repeated': is_repeated,
                 'optional': is_optional,
+                'is_map': is_map,
+                'is_oneof': is_part_of_real_oneof,
+                'oneof_name': oneof_name,
                 'type_name': field.type_name if field.type_name else None
             }
             
@@ -425,6 +558,23 @@ class McpPlugin:
             f"{indentation}    # Construct request message",
             f"{indentation}    request = {pb2_module}.{input_type_name}()",
         ])
+        
+        # Generate oneof validation if needed
+        oneofs = {}
+        for field in input_fields:
+            if field.get('is_oneof', False):
+                oneof_name = field['oneof_name']
+                if oneof_name not in oneofs:
+                    oneofs[oneof_name] = []
+                oneofs[oneof_name].append(field['name'])
+        
+        # Add oneof validation comments
+        if oneofs:
+            lines.append(f"{indentation}    # Oneof validation:")
+            for oneof_name, field_names in oneofs.items():
+                field_list = ", ".join(field_names)
+                lines.append(f"{indentation}    # Only one of [{field_list}] should be provided for oneof '{oneof_name}'")
+            lines.append(f"{indentation}    ")
         
         # Generate field assignment code
         for field in input_fields:
