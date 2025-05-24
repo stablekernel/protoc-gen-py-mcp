@@ -27,8 +27,17 @@ make
 
 ## Testing the example
 
-Install the example `mcp-vibe` server
-[TODO: add instructions to run the project specific example server]
+Install the example `mcp-vibe` server:
+
+```bash
+# Install the example application
+cd examples/mcp_vibe_example
+pip install -e .
+
+# Test that it works
+mcp-vibe --help
+```
+
 Add the `mcp-vibe` server to your mcp servers:
 
 ```json

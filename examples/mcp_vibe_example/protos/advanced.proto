@@ -1,0 +1,117 @@
+syntax = "proto3";
+
+package examples.v1;
+
+option go_package = "examples/gen/advanced/v1;advancedv1";
+
+// Enum for testing enum field support
+enum Priority {
+  PRIORITY_UNSPECIFIED = 0;
+  PRIORITY_LOW = 1;
+  PRIORITY_MEDIUM = 2;
+  PRIORITY_HIGH = 3;
+}
+
+// Nested message for testing message field support
+message TaskMetadata {
+  string author = 1;
+  int64 created_at = 2;
+  optional string description = 3;
+}
+
+// Request with repeated fields
+message CreateTasksRequest {
+  // Repeated primitive fields
+  repeated string task_names = 1;
+  repeated int32 priorities = 2;
+  repeated bool urgent_flags = 3;
+  
+  // Repeated enum field
+  repeated Priority priority_levels = 4;
+  
+  // Repeated message field
+  repeated TaskMetadata metadata_list = 5;
+}
+
+// Request with enum fields
+message UpdateTaskRequest {
+  string task_id = 1;
+  Priority priority = 2;
+  optional Priority fallback_priority = 3;
+}
+
+// Request with nested message fields
+message TaskWithMetadataRequest {
+  string task_id = 1;
+  TaskMetadata metadata = 2;
+  optional TaskMetadata backup_metadata = 3;
+}
+
+// Request with map fields
+message TaskAttributesRequest {
+  string task_id = 1;
+  // Map with string values
+  map<string, string> attributes = 2;
+  // Map with int values
+  map<string, int32> counters = 3;
+  // Map with message values
+  map<string, TaskMetadata> metadata_map = 4;
+}
+
+// Request with oneof fields (real oneofs, not proto3_optional)
+message TaskActionRequest {
+  string task_id = 1;
+  
+  oneof action {
+    string complete_with_note = 2;
+    bool mark_complete = 3;
+    Priority change_priority = 4;
+    TaskMetadata update_metadata = 5;
+  }
+  
+  // Additional field outside oneof
+  optional int64 timestamp = 6;
+}
+
+// Request with proto3 optional fields (already supported)
+message OptionalFieldsRequest {
+  string required_field = 1;
+  optional string optional_string = 2;
+  optional int32 optional_int = 3;
+  optional bool optional_bool = 4;
+  optional Priority optional_enum = 5;
+  optional TaskMetadata optional_message = 6;
+}
+
+// Response messages
+message TaskResponse {
+  bool success = 1;
+  optional string error_message = 2;
+  repeated string created_task_ids = 3;
+}
+
+message TaskListResponse {
+  repeated TaskMetadata tasks = 1;
+  map<string, string> summary = 2;
+}
+
+// Service for testing advanced features
+service TaskService {
+  // Test repeated fields
+  rpc CreateTasks(CreateTasksRequest) returns (TaskResponse) {}
+  
+  // Test enum fields
+  rpc UpdateTask(UpdateTaskRequest) returns (TaskResponse) {}
+  
+  // Test nested message fields
+  rpc UpdateTaskMetadata(TaskWithMetadataRequest) returns (TaskResponse) {}
+  
+  // Test map fields
+  rpc SetTaskAttributes(TaskAttributesRequest) returns (TaskResponse) {}
+  
+  // Test oneof fields
+  rpc ExecuteTaskAction(TaskActionRequest) returns (TaskResponse) {}
+  
+  // Test optional fields (already supported)
+  rpc QueryTasks(OptionalFieldsRequest) returns (TaskListResponse) {}
+}
