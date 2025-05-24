@@ -14,35 +14,68 @@ def create_vibeservice_server() -> FastMCP:
 
     @mcp.tool()
     def set_vibe(vibe: str) -> dict:
-        """Tool for SetVibe RPC method."""
+        """Tool for SetVibe RPC method.
+        
+        Set the Vibe
+        """
         # Parameters:
         #   vibe: str
+        
+        # Validate required fields
+        if not vibe or not isinstance(vibe, str):
+            raise ValueError(f"Required string field 'vibe' is missing or invalid")
         
         # Construct request message
         request = protos.example_pb2.SetVibeRequest()
         request.vibe = vibe
         
-        # TODO: Implement actual SetVibe logic here
-        # For now, create an empty response
-        response = protos.example_pb2.SetVibeResponse()
-        
-        # Convert response to dict for MCP
-        result = json_format.MessageToDict(response, use_integers_for_enums=True)
-        return result
+        try:
+            # TODO: Implement actual SetVibe logic here
+            # For now, create an empty response
+            response = protos.example_pb2.SetVibeResponse()
+            
+            # Convert response to dict for MCP
+            result = json_format.MessageToDict(response, use_integers_for_enums=True)
+            return result
+            
+        except Exception as e:
+            # Return error information in a standardized format
+            return {
+                "error": {
+                    "type": type(e).__name__,
+                    "message": str(e),
+                    "method": "SetVibe"
+                }
+            }
     
     @mcp.tool()
     def get_vibe() -> dict:
-        """Tool for GetVibe RPC method."""
+        """Tool for GetVibe RPC method.
+        
+        Get Vibe
+ of the server
+        """
         # Construct request message
         request = protos.example_pb2.GetVibeRequest()
         
-        # TODO: Implement actual GetVibe logic here
-        # For now, create an empty response
-        response = protos.example_pb2.GetVibeResponse()
-        
-        # Convert response to dict for MCP
-        result = json_format.MessageToDict(response, use_integers_for_enums=True)
-        return result
+        try:
+            # TODO: Implement actual GetVibe logic here
+            # For now, create an empty response
+            response = protos.example_pb2.GetVibeResponse()
+            
+            # Convert response to dict for MCP
+            result = json_format.MessageToDict(response, use_integers_for_enums=True)
+            return result
+            
+        except Exception as e:
+            # Return error information in a standardized format
+            return {
+                "error": {
+                    "type": type(e).__name__,
+                    "message": str(e),
+                    "method": "GetVibe"
+                }
+            }
     
     return mcp
 

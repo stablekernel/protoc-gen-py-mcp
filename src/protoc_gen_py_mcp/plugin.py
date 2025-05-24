@@ -14,7 +14,9 @@ class McpPlugin:
     from stdin and writing a CodeGeneratorResponse to stdout.
     """
     
-    # Suffix for generated Python MCP files
+    # Default suffix for generated Python MCP files (can be overridden by parameters)
+    DEFAULT_OUTPUT_FILE_SUFFIX = "_pb2_mcp.py"
+    # Keep for backward compatibility with tests
     OUTPUT_FILE_SUFFIX = "_pb2_mcp.py"
     
     def __init__(self):
@@ -30,16 +32,79 @@ class McpPlugin:
         # Comment extraction
         self.source_comments: Dict[str, Dict[tuple, str]] = {}  # filename -> path -> comment
         
-    def log_debug(self, message: str) -> None:
+    def log_debug(self, message: str, level: str = 'basic') -> None:
         """Log debug message to stderr if debug mode is enabled."""
-        if self.debug_mode:
+        if self.debug_mode and self._should_log_level(level):
             sys.stderr.write(f"[protoc-gen-py-mcp] {message}\n")
             sys.stderr.flush()
+    
+    def log_verbose(self, message: str) -> None:
+        """Log verbose debug message."""
+        self.log_debug(message, 'verbose')
+    
+    def log_trace(self, message: str) -> None:
+        """Log trace debug message."""
+        self.log_debug(message, 'trace')
     
     def log_error(self, message: str) -> None:
         """Log error message to stderr."""
         sys.stderr.write(f"[protoc-gen-py-mcp ERROR] {message}\n")
         sys.stderr.flush()
+    
+    def _should_log_level(self, level: str) -> bool:
+        """Check if we should log at the given level."""
+        level_hierarchy = {'basic': 1, 'verbose': 2, 'trace': 3}
+        current_level = level_hierarchy.get(self.debug_level, 0)
+        required_level = level_hierarchy.get(level, 1)
+        return current_level >= required_level
+    
+    def _show_generated_code(self) -> bool:
+        """Check if generated code should be shown in debug output."""
+        return self.parameters.get('show_generated', '').lower() in ('true', '1', 'yes')
+    
+    def _show_type_details(self) -> bool:
+        """Check if detailed type information should be shown."""
+        return self.parameters.get('show_types', '').lower() in ('true', '1', 'yes')
+    
+    def _get_output_suffix(self) -> str:
+        """Get custom output file suffix."""
+        return self.parameters.get('output_suffix', '_pb2_mcp.py')
+    
+    def _get_server_name_pattern(self) -> str:
+        """Get server name pattern."""
+        return self.parameters.get('server_name_pattern', '{service}')
+    
+    def _get_function_name_pattern(self) -> str:
+        """Get function name pattern."""
+        return self.parameters.get('function_name_pattern', 'create_{service}_server')
+    
+    def _get_tool_name_case(self) -> str:
+        """Get tool name case conversion."""
+        return self.parameters.get('tool_name_case', 'snake')
+    
+    def _include_comments(self) -> bool:
+        """Check if proto comments should be included."""
+        return self.parameters.get('include_comments', 'true').lower() in ('true', '1', 'yes')
+    
+    def _get_error_format(self) -> str:
+        """Get error response format."""
+        return self.parameters.get('error_format', 'standard')
+    
+    def _get_stream_mode(self) -> str:
+        """Get streaming RPC handling mode."""
+        return self.parameters.get('stream_mode', 'collect')
+    
+    def _get_auth_type(self) -> str:
+        """Get authentication type."""
+        return self.parameters.get('auth_type', 'none')
+    
+    def _get_auth_header(self) -> str:
+        """Get authentication header name."""
+        return self.parameters.get('auth_header', 'Authorization')
+    
+    def _should_generate_auth_metadata(self) -> bool:
+        """Check if auth metadata should be generated."""
+        return self.parameters.get('auth_metadata', 'true').lower() in ('true', '1', 'yes')
     
     def parse_parameters(self, parameter_string: str) -> None:
         """
@@ -47,7 +112,23 @@ class McpPlugin:
         
         Parameters are in the format: key1=value1,key2=value2
         Special parameters:
-        - debug: Enable debug logging
+        - debug: Enable debug logging (basic, verbose, trace)
+        - grpc_target: gRPC server address (e.g., localhost:50051)
+        - async: Generate async tool functions
+        - insecure: Use insecure gRPC channel (default: false)
+        - timeout: gRPC call timeout in seconds (default: 30)
+        - show_generated: Show generated code content in debug output
+        - show_types: Show detailed type information in debug output
+        - output_suffix: Custom output file suffix (default: _pb2_mcp.py)
+        - server_name_pattern: Custom server name pattern (default: {service}Service)
+        - function_name_pattern: Custom function name pattern (default: create_{service}_server)
+        - tool_name_case: Case for tool names (snake, camel, pascal, kebab)
+        - include_comments: Include proto comments in generated code (default: true)
+        - error_format: Error response format (standard, simple, detailed)
+        - stream_mode: How to handle streaming RPCs (collect, skip, warn)
+        - auth_type: Authentication type (none, bearer, api_key, mtls, custom)
+        - auth_header: Header name for API key/bearer auth (default: Authorization)
+        - auth_metadata: Generate metadata injection for auth (default: true)
         """
         if not parameter_string:
             return
@@ -61,9 +142,31 @@ class McpPlugin:
                 self.parameters[param.strip()] = "true"
         
         # Handle special parameters
-        self.debug_mode = self.parameters.get('debug', '').lower() in ('true', '1', 'yes')
+        debug_value = self.parameters.get('debug', '').lower()
+        self.debug_mode = debug_value in ('true', '1', 'yes', 'basic', 'verbose', 'trace')
+        self.debug_level = debug_value if debug_value in ('basic', 'verbose', 'trace') else ('basic' if self.debug_mode else 'none')
         
         self.log_debug(f"Parsed parameters: {self.parameters}")
+        self.log_debug(f"Debug level: {self.debug_level}")
+    
+    def _get_grpc_target(self) -> Optional[str]:
+        """Get gRPC target address from parameters."""
+        return self.parameters.get('grpc_target')
+    
+    def _is_async_mode(self) -> bool:
+        """Check if async mode is enabled."""
+        return self.parameters.get('async', '').lower() in ('true', '1', 'yes')
+    
+    def _is_insecure_channel(self) -> bool:
+        """Check if insecure gRPC channel should be used."""
+        return self.parameters.get('insecure', '').lower() in ('true', '1', 'yes')
+    
+    def _get_grpc_timeout(self) -> int:
+        """Get gRPC timeout in seconds."""
+        try:
+            return int(self.parameters.get('timeout', '30'))
+        except ValueError:
+            return 30
     
     def _build_type_index(self, request: plugin.CodeGeneratorRequest) -> None:
         """
@@ -86,6 +189,9 @@ class McpPlugin:
             
             # Index enum types  
             self._index_enums(proto_file.enum_type, proto_file.package)
+            
+            if self._show_type_details():
+                self.log_verbose(f"File {proto_file.name}: {len(proto_file.message_type)} messages, {len(proto_file.enum_type)} enums")
         
         self.log_debug(f"Indexed {len(self.message_types)} message types and {len(self.enum_types)} enum types")
     
@@ -431,6 +537,9 @@ class McpPlugin:
             
             fields.append(field_info)
             self.log_debug(f"Analyzed field {field.name}: {field_info['type']}")
+            
+            if self._show_type_details():
+                self.log_verbose(f"  Field details: {field_info}")
         
         return fields
     
@@ -484,7 +593,7 @@ class McpPlugin:
                 return
             
             # Generate output filename
-            output_filename = proto_file.name.replace(".proto", self.OUTPUT_FILE_SUFFIX)
+            output_filename = proto_file.name.replace(".proto", self._get_output_suffix())
             
             # Generate the content
             content = self.generate_file_content(proto_file)
@@ -495,6 +604,11 @@ class McpPlugin:
             generated_file.content = content
             
             self.log_debug(f"Generated {len(content)} characters for {output_filename}")
+            
+            if self._show_generated_code():
+                self.log_verbose(f"Generated content for {output_filename}:")
+                for i, line in enumerate(content.split('\n'), 1):
+                    self.log_trace(f"  {i:3d}: {line}")
             
         except Exception as e:
             error_msg = f"Error processing file {proto_file.name}: {str(e)}"
@@ -534,16 +648,32 @@ class McpPlugin:
     
     def _generate_imports(self, lines: List[str], proto_file: descriptor_pb2.FileDescriptorProto) -> None:
         """Generate necessary imports for the generated code."""
+        # Basic imports
+        if self._is_async_mode():
+            lines.append("import asyncio")
+        
         lines.extend([
             "from typing import Optional, List, Dict, Any",
             "from fastmcp import FastMCP",
             "from google.protobuf import json_format",
-            "",
         ])
+        
+        # Add gRPC imports if target is specified
+        if self._get_grpc_target():
+            lines.extend([
+                "import grpc",
+            ])
+        
+        lines.append("")
         
         # Import the corresponding pb2 module
         pb2_module = proto_file.name.replace(".proto", "_pb2").replace("/", ".")
         lines.append(f"import {pb2_module}")
+        
+        # Import gRPC stub if target is specified
+        if self._get_grpc_target():
+            grpc_module = proto_file.name.replace(".proto", "_pb2_grpc").replace("/", ".")
+            lines.append(f"import {grpc_module}")
         
         lines.append("")
     
@@ -551,7 +681,13 @@ class McpPlugin:
                          proto_file: descriptor_pb2.FileDescriptorProto) -> None:
         """Generate MCP server factory function for a service."""
         service_name = service.name
-        function_name = f"create_{service_name.lower()}_server"
+        
+        # Apply custom patterns
+        function_pattern = self._get_function_name_pattern()
+        function_name = function_pattern.format(service=service_name.lower())
+        
+        server_pattern = self._get_server_name_pattern()
+        server_name = server_pattern.format(service=service_name)
         
         # Try to get service comment from source code info
         # Service path is [6, service_index] where 6 is the field number for services
@@ -567,13 +703,20 @@ class McpPlugin:
         lines.extend([
             f"def {function_name}() -> FastMCP:",
             docstring,
-            f'    mcp = FastMCP("{service_name}")',
+            f'    mcp = FastMCP("{server_name}")',
             "",
         ])
         
         # Generate tool functions for each method
         for method_index, method in enumerate(service.method):
-            self._generate_method_tool(lines, method, proto_file, service_index, method_index, indentation="    ")
+            # Check if this is a streaming method
+            is_client_stream = method.client_streaming
+            is_server_stream = method.server_streaming
+            
+            if is_client_stream or is_server_stream:
+                self._handle_streaming_method(lines, method, proto_file, service_index, method_index)
+            else:
+                self._generate_method_tool(lines, method, proto_file, service_index, method_index, indentation="    ")
         
         lines.extend([
             "    return mcp",
@@ -585,7 +728,7 @@ class McpPlugin:
                              method_index: int, indentation: str = "") -> None:
         """Generate an MCP tool function for a gRPC method."""
         method_name = method.name
-        method_name_snake = self._camel_to_snake(method_name)
+        method_name_converted = self._convert_tool_name(method_name)
         
         # Analyze input message fields to generate function parameters
         input_fields = self._analyze_message_fields(method.input_type)
@@ -610,17 +753,25 @@ class McpPlugin:
         # 6 = services field, 2 = methods field within service
         method_comment = self._get_comment(proto_file.name, [6, service_index, 2, method_index])
         
-        # Create enhanced docstring with method comment if available
-        if method_comment:
+        # Create enhanced docstring with method comment if available (if comments are enabled)
+        if self._include_comments() and method_comment:
             docstring = f'{indentation}    """Tool for {method_name} RPC method.\n{indentation}    \n{indentation}    {method_comment}\n{indentation}    """'
         else:
             docstring = f'{indentation}    """Tool for {method_name} RPC method."""'
         
-        lines.extend([
-            f"{indentation}@mcp.tool()",
-            f"{indentation}def {method_name_snake}({param_str}) -> dict:",
-            docstring,
-        ])
+        # Generate function definition (async if enabled)
+        if self._is_async_mode():
+            lines.extend([
+                f"{indentation}@mcp.tool()",
+                f"{indentation}async def {method_name_converted}({param_str}) -> dict:",
+                docstring,
+            ])
+        else:
+            lines.extend([
+                f"{indentation}@mcp.tool()",
+                f"{indentation}def {method_name_converted}({param_str}) -> dict:",
+                docstring,
+            ])
         
         # Generate parameter documentation if we have input fields
         if input_fields:
@@ -713,8 +864,138 @@ class McpPlugin:
         # Generate response handling with error handling
         output_type_name = method.output_type.split('.')[-1]  # Get the simple name
         
+        lines.append(f"{indentation}    ")
+        
+        # Generate implementation based on whether gRPC target is specified
+        grpc_target = self._get_grpc_target()
+        if grpc_target:
+            self._generate_grpc_call(lines, method, proto_file, indentation)
+        else:
+            self._generate_stub_implementation(lines, method, proto_file, indentation)
+    
+    def _generate_grpc_call(self, lines: List[str], method: descriptor_pb2.MethodDescriptorProto,
+                           proto_file: descriptor_pb2.FileDescriptorProto, indentation: str) -> None:
+        """Generate actual gRPC call implementation."""
+        method_name = method.name
+        pb2_module = proto_file.name.replace(".proto", "_pb2").replace("/", ".")
+        grpc_module = proto_file.name.replace(".proto", "_pb2_grpc").replace("/", ".")
+        output_type_name = method.output_type.split('.')[-1]
+        
+        # Get service name for stub
+        service_name = None
+        for service in proto_file.service:
+            for service_method in service.method:
+                if service_method.name == method_name:
+                    service_name = service.name
+                    break
+            if service_name:
+                break
+        
+        grpc_target = self._get_grpc_target()
+        timeout = self._get_grpc_timeout()
+        is_insecure = self._is_insecure_channel()
+        is_async = self._is_async_mode()
+        auth_type = self._get_auth_type()
+        
         lines.extend([
-            f"{indentation}    ",
+            f"{indentation}    try:",
+        ])
+        
+        # Generate authentication metadata if needed
+        if auth_type != 'none' and self._should_generate_auth_metadata():
+            self._generate_auth_metadata(lines, auth_type, indentation)
+        
+        if is_async:
+            # Async gRPC call
+            if is_insecure:
+                lines.extend([
+                    f"{indentation}        # Create async insecure gRPC channel",
+                    f"{indentation}        async with grpc.aio.insecure_channel('{grpc_target}') as channel:",
+                ])
+            else:
+                lines.extend([
+                    f"{indentation}        # Create async secure gRPC channel",
+                    f"{indentation}        async with grpc.aio.secure_channel('{grpc_target}', grpc.ssl_channel_credentials()) as channel:",
+                ])
+            
+            lines.extend([
+                f"{indentation}            stub = {grpc_module}.{service_name}Stub(channel)",
+            ])
+            
+            # Add metadata to the call if auth is enabled
+            if auth_type != 'none':
+                lines.append(f"{indentation}            response = await stub.{method_name}(request, timeout={timeout}, metadata=metadata)")
+            else:
+                lines.append(f"{indentation}            response = await stub.{method_name}(request, timeout={timeout})")
+            
+            lines.extend([
+                f"{indentation}        ",
+                f"{indentation}        # Convert response to dict for MCP",
+                f"{indentation}        result = json_format.MessageToDict(response, use_integers_for_enums=True)",
+                f"{indentation}        return result",
+            ])
+        else:
+            # Sync gRPC call
+            if is_insecure:
+                lines.extend([
+                    f"{indentation}        # Create insecure gRPC channel",
+                    f"{indentation}        with grpc.insecure_channel('{grpc_target}') as channel:",
+                ])
+            else:
+                lines.extend([
+                    f"{indentation}        # Create secure gRPC channel",
+                    f"{indentation}        with grpc.secure_channel('{grpc_target}', grpc.ssl_channel_credentials()) as channel:",
+                ])
+            
+            lines.extend([
+                f"{indentation}            stub = {grpc_module}.{service_name}Stub(channel)",
+            ])
+            
+            # Add metadata to the call if auth is enabled
+            if auth_type != 'none':
+                lines.append(f"{indentation}            response = stub.{method_name}(request, timeout={timeout}, metadata=metadata)")
+            else:
+                lines.append(f"{indentation}            response = stub.{method_name}(request, timeout={timeout})")
+            
+            lines.extend([
+                f"{indentation}        ",
+                f"{indentation}        # Convert response to dict for MCP",
+                f"{indentation}        result = json_format.MessageToDict(response, use_integers_for_enums=True)",
+                f"{indentation}        return result",
+            ])
+        
+        lines.extend([
+            f"{indentation}        ",
+            f"{indentation}    except grpc.RpcError as e:",
+            f"{indentation}        # Handle gRPC-specific errors",
+            f"{indentation}        return {{",
+            f"{indentation}            \"error\": {{",
+            f"{indentation}                \"type\": \"gRPC Error\",",
+            f"{indentation}                \"code\": e.code().name,",
+            f"{indentation}                \"message\": e.details(),",
+            f"{indentation}                \"method\": \"{method_name}\"",
+            f"{indentation}            }}",
+            f"{indentation}        }}",
+            f"{indentation}    except Exception as e:",
+            f"{indentation}        # Handle other errors",
+            f"{indentation}        return {{",
+            f"{indentation}            \"error\": {{",
+            f"{indentation}                \"type\": type(e).__name__,",
+            f"{indentation}                \"message\": str(e),",
+            f"{indentation}                \"method\": \"{method_name}\"",
+            f"{indentation}            }}",
+            f"{indentation}        }}",
+            f"{indentation}",
+        ])
+    
+    def _generate_stub_implementation(self, lines: List[str], method: descriptor_pb2.MethodDescriptorProto,
+                                     proto_file: descriptor_pb2.FileDescriptorProto, indentation: str) -> None:
+        """Generate stub implementation (TODO for user to fill in)."""
+        method_name = method.name
+        pb2_module = proto_file.name.replace(".proto", "_pb2").replace("/", ".")
+        output_type_name = method.output_type.split('.')[-1]
+        
+        lines.extend([
             f"{indentation}    try:",
             f"{indentation}        # TODO: Implement actual {method_name} logic here",
             f"{indentation}        # For now, create an empty response",
@@ -736,6 +1017,175 @@ class McpPlugin:
             f"{indentation}",
         ])
     
+    def _handle_streaming_method(self, lines: List[str], method: descriptor_pb2.MethodDescriptorProto,
+                                proto_file: descriptor_pb2.FileDescriptorProto, service_index: int, 
+                                method_index: int) -> None:
+        """Handle streaming RPC methods based on stream_mode setting."""
+        stream_mode = self._get_stream_mode()
+        method_name = method.name
+        is_client_stream = method.client_streaming
+        is_server_stream = method.server_streaming
+        
+        if stream_mode == 'skip':
+            # Skip streaming methods entirely
+            self.log_debug(f"Skipping streaming method {method_name} (client_stream={is_client_stream}, server_stream={is_server_stream})")
+            lines.extend([
+                f"    # Skipped streaming method: {method_name}",
+                f"    # Client streaming: {is_client_stream}, Server streaming: {is_server_stream}",
+                "",
+            ])
+            return
+        
+        if stream_mode == 'warn':
+            # Generate with warning comments
+            lines.extend([
+                f"    # WARNING: {method_name} is a streaming RPC",
+                f"    # Client streaming: {is_client_stream}, Server streaming: {is_server_stream}",
+                f"    # Streaming RPCs may not work well with MCP's request/response model",
+                "",
+            ])
+        
+        if is_client_stream and is_server_stream:
+            # Bidirectional streaming - not easily adaptable to MCP
+            if stream_mode == 'collect':
+                lines.extend([
+                    f"    # NOTE: {method_name} is bidirectional streaming - not supported",
+                    f"    # Consider using separate unary RPCs for MCP integration",
+                    "",
+                ])
+                return
+            else:
+                self.log_debug(f"Warning: Bidirectional streaming method {method_name} may not work properly with MCP")
+        
+        # For server/client streaming, generate adapted version
+        if stream_mode == 'collect':
+            self._generate_streaming_tool_adapted(lines, method, proto_file, service_index, method_index)
+        else:
+            # Generate normal tool but with streaming handling
+            self._generate_method_tool(lines, method, proto_file, service_index, method_index, indentation="    ")
+    
+    def _generate_streaming_tool_adapted(self, lines: List[str], method: descriptor_pb2.MethodDescriptorProto,
+                                        proto_file: descriptor_pb2.FileDescriptorProto, service_index: int, 
+                                        method_index: int) -> None:
+        """Generate adapted tool for streaming RPC that collects all responses."""
+        method_name = method.name
+        method_name_converted = self._convert_tool_name(method_name)
+        is_client_stream = method.client_streaming
+        is_server_stream = method.server_streaming
+        
+        if is_client_stream and is_server_stream:
+            # Bidirectional - skip
+            return
+        
+        # Analyze input message fields
+        input_fields = self._analyze_message_fields(method.input_type)
+        
+        # For client streaming, we'll accept a list of requests
+        if is_client_stream:
+            # Modify to accept list of inputs
+            params = ["requests: List[dict]"]
+        else:
+            # Regular unary input
+            required_params = []
+            optional_params = []
+            
+            for field in input_fields:
+                if field['optional']:
+                    optional_params.append(f"{field['name']}: {field['type']} = None")
+                else:
+                    required_params.append(f"{field['name']}: {field['type']}")
+            
+            params = required_params + optional_params
+        
+        param_str = ", ".join(params)
+        
+        # Get comment
+        method_comment = self._get_comment(proto_file.name, [6, service_index, 2, method_index])
+        
+        # Enhanced docstring for streaming
+        stream_type = "client streaming" if is_client_stream else "server streaming"
+        if self._include_comments() and method_comment:
+            docstring = f'    """Tool for {method_name} RPC method ({stream_type}).\n    \n    {method_comment}\n    \n    Note: This is a {stream_type} RPC adapted for MCP.\n    """'
+        else:
+            docstring = f'    """Tool for {method_name} RPC method ({stream_type})."""'
+        
+        # Generate function
+        if self._is_async_mode():
+            lines.extend([
+                f"    @mcp.tool()",
+                f"    async def {method_name_converted}({param_str}) -> dict:",
+                docstring,
+            ])
+        else:
+            lines.extend([
+                f"    @mcp.tool()",
+                f"    def {method_name_converted}({param_str}) -> dict:",
+                docstring,
+            ])
+        
+        # Generate implementation comment
+        lines.extend([
+            f"        # NOTE: This is a {stream_type} RPC adapted for MCP",
+            f"        # Results are collected and returned as a list",
+            "",
+        ])
+        
+        # Add TODO implementation for now
+        if is_client_stream:
+            lines.extend([
+                "        # TODO: Implement client streaming logic",
+                "        # Process list of requests and send them to the streaming RPC",
+                "        # Return collected responses",
+                "        return {'error': 'Client streaming not yet implemented'}",
+            ])
+        else:
+            lines.extend([
+                "        # TODO: Implement server streaming logic", 
+                "        # Send single request and collect all streaming responses",
+                "        # Return list of responses",
+                "        return {'error': 'Server streaming not yet implemented'}",
+            ])
+        
+        lines.append("")
+    
+    def _generate_auth_metadata(self, lines: List[str], auth_type: str, indentation: str) -> None:
+        """Generate authentication metadata for gRPC calls."""
+        auth_header = self._get_auth_header()
+        
+        if auth_type == 'bearer':
+            lines.extend([
+                f"{indentation}        # Bearer token authentication",
+                f"{indentation}        # TODO: Replace with actual token retrieval logic",
+                f"{indentation}        token = 'your-bearer-token-here'",
+                f"{indentation}        metadata = (('{auth_header.lower()}', f'Bearer {{token}}'),)",
+            ])
+        elif auth_type == 'api_key':
+            lines.extend([
+                f"{indentation}        # API key authentication",
+                f"{indentation}        # TODO: Replace with actual API key retrieval logic",
+                f"{indentation}        api_key = 'your-api-key-here'",
+                f"{indentation}        metadata = (('{auth_header.lower()}', api_key),)",
+            ])
+        elif auth_type == 'mtls':
+            lines.extend([
+                f"{indentation}        # mTLS authentication (handled at channel level)",
+                f"{indentation}        # TODO: Configure client certificates in channel creation",
+                f"{indentation}        metadata = ()",  # Empty metadata for mTLS
+            ])
+        elif auth_type == 'custom':
+            lines.extend([
+                f"{indentation}        # Custom authentication",
+                f"{indentation}        # TODO: Implement custom auth metadata logic",
+                f"{indentation}        metadata = ()",  # Placeholder for custom auth
+            ])
+        else:
+            # Default to empty metadata
+            lines.extend([
+                f"{indentation}        metadata = ()",
+            ])
+        
+        lines.append("")
+    
     def _camel_to_snake(self, name: str) -> str:
         """Convert CamelCase to snake_case."""
         result = []
@@ -744,6 +1194,24 @@ class McpPlugin:
                 result.append('_')
             result.append(char.lower())
         return ''.join(result)
+    
+    def _convert_tool_name(self, method_name: str) -> str:
+        """Convert method name according to tool_name_case setting."""
+        case_type = self._get_tool_name_case()
+        
+        if case_type == 'snake':
+            return self._camel_to_snake(method_name)
+        elif case_type == 'camel':
+            # Keep first letter lowercase
+            return method_name[0].lower() + method_name[1:] if method_name else ''
+        elif case_type == 'pascal':
+            # Keep as-is (PascalCase)
+            return method_name
+        elif case_type == 'kebab':
+            return self._camel_to_snake(method_name).replace('_', '-')
+        else:
+            # Default to snake case
+            return self._camel_to_snake(method_name)
 
 
 def main() -> None:
