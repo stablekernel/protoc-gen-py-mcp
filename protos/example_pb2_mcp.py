@@ -5,77 +5,44 @@
 from typing import Optional, List, Dict, Any
 from fastmcp import FastMCP
 from google.protobuf import json_format
+import grpc
 
 import protos.example_pb2
+import protos.example_pb2_grpc
 
-def create_vibeservice_server() -> FastMCP:
-    """Create an MCP server for VibeService service tools."""
-    mcp = FastMCP("VibeService")
+mcp = FastMCP("MCP Server from Proto")
 
-    @mcp.tool()
-    def set_vibe(vibe: str) -> dict:
-        """Tool for SetVibe RPC method.
-        
-        Set the Vibe
-        """
-        # Parameters:
-        #   vibe: str
-        
-        # Validate required fields
-        if not vibe or not isinstance(vibe, str):
-            raise ValueError(f"Required string field 'vibe' is missing or invalid")
-        
-        # Construct request message
-        request = protos.example_pb2.SetVibeRequest()
-        request.vibe = vibe
-        
-        try:
-            # TODO: Implement actual SetVibe logic here
-            # For now, create an empty response
-            response = protos.example_pb2.SetVibeResponse()
-            
-            # Convert response to dict for MCP
-            result = json_format.MessageToDict(response, use_integers_for_enums=True)
-            return result
-            
-        except Exception as e:
-            # Return error information in a standardized format
-            return {
-                "error": {
-                    "type": type(e).__name__,
-                    "message": str(e),
-                    "method": "SetVibe"
-                }
-            }
+@mcp.tool(name="SetVibe", description="Set the Vibe")
+def set_vibe(vibe: str):
+    """Tool for SetVibe RPC method.
     
-    @mcp.tool()
-    def get_vibe() -> dict:
-        """Tool for GetVibe RPC method.
-        
-        Get Vibe
+    Set the Vibe
+    """
+    # Construct request message
+    request = protos.example_pb2.SetVibeRequest()
+    request.vibe = vibe
+    
+    channel = grpc.insecure_channel('localhost:50051')
+    stub = protos.example_pb2_grpc.VibeServiceStub(channel)
+    response = stub.SetVibe(request)
+    print(response)
+
+@mcp.tool(name="GetVibe", description="Get Vibe  of the server")
+def get_vibe():
+    """Tool for GetVibe RPC method.
+    
+    Get Vibe
  of the server
-        """
-        # Construct request message
-        request = protos.example_pb2.GetVibeRequest()
-        
-        try:
-            # TODO: Implement actual GetVibe logic here
-            # For now, create an empty response
-            response = protos.example_pb2.GetVibeResponse()
-            
-            # Convert response to dict for MCP
-            result = json_format.MessageToDict(response, use_integers_for_enums=True)
-            return result
-            
-        except Exception as e:
-            # Return error information in a standardized format
-            return {
-                "error": {
-                    "type": type(e).__name__,
-                    "message": str(e),
-                    "method": "GetVibe"
-                }
-            }
+    """
+    # Construct request message
+    request = protos.example_pb2.GetVibeRequest()
     
-    return mcp
+    channel = grpc.insecure_channel('localhost:50051')
+    stub = protos.example_pb2_grpc.VibeServiceStub(channel)
+    response = stub.GetVibe(request)
+    print(response)
+
+
+if __name__ == '__main__':
+    mcp.run()
 

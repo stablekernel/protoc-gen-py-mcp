@@ -106,6 +106,10 @@ class McpPlugin:
         """Check if auth metadata should be generated."""
         return self.parameters.get('auth_metadata', 'true').lower() in ('true', '1', 'yes')
     
+    def _get_output_style(self) -> str:
+        """Get output generation style."""
+        return self.parameters.get('output_style', 'bridge')
+    
     def parse_parameters(self, parameter_string: str) -> None:
         """
         Parse plugin parameters from the protoc parameter string.
@@ -129,6 +133,7 @@ class McpPlugin:
         - auth_type: Authentication type (none, bearer, api_key, mtls, custom)
         - auth_header: Header name for API key/bearer auth (default: Authorization)
         - auth_metadata: Generate metadata injection for auth (default: true)
+        - output_style: Generation style (bridge, factory) - bridge is functional gRPC client, factory is template pattern
         """
         if not parameter_string:
             return
@@ -632,8 +637,14 @@ class McpPlugin:
         self._generate_imports(lines, proto_file)
         
         # Generate code for each service
+        service_names = []
         for service in proto_file.service:
             self._generate_service(lines, service, proto_file)
+            service_names.append(service.name)
+        
+        # Generate main execution block only for bridge mode
+        if self._get_output_style() == 'bridge':
+            self._generate_main_block(lines, service_names)
         
         return '\n'.join(lines) + '\n'
     
@@ -656,13 +667,8 @@ class McpPlugin:
             "from typing import Optional, List, Dict, Any",
             "from fastmcp import FastMCP",
             "from google.protobuf import json_format",
+            "import grpc",  # Always include gRPC imports for functional bridge
         ])
-        
-        # Add gRPC imports if target is specified
-        if self._get_grpc_target():
-            lines.extend([
-                "import grpc",
-            ])
         
         lines.append("")
         
@@ -670,16 +676,61 @@ class McpPlugin:
         pb2_module = proto_file.name.replace(".proto", "_pb2").replace("/", ".")
         lines.append(f"import {pb2_module}")
         
-        # Import gRPC stub if target is specified
-        if self._get_grpc_target():
-            grpc_module = proto_file.name.replace(".proto", "_pb2_grpc").replace("/", ".")
-            lines.append(f"import {grpc_module}")
+        # Always import gRPC stub for functional bridge
+        grpc_module = proto_file.name.replace(".proto", "_pb2_grpc").replace("/", ".")
+        lines.append(f"import {grpc_module}")
         
         lines.append("")
     
+    def _generate_main_block(self, lines: List[str], service_names: List[str]) -> None:
+        """Generate main execution block like the target file."""
+        lines.extend([
+            "",
+            "if __name__ == '__main__':",
+            "    mcp.run()",
+            "",
+        ])
+    
     def _generate_service(self, lines: List[str], service: descriptor_pb2.ServiceDescriptorProto, 
                          proto_file: descriptor_pb2.FileDescriptorProto) -> None:
-        """Generate MCP server factory function for a service."""
+        """Generate MCP server code based on output style."""
+        output_style = self._get_output_style()
+        
+        if output_style == 'factory':
+            self._generate_factory_service(lines, service, proto_file)
+        else:  # bridge (default)
+            self._generate_bridge_service(lines, service, proto_file)
+    
+    def _generate_bridge_service(self, lines: List[str], service: descriptor_pb2.ServiceDescriptorProto, 
+                                proto_file: descriptor_pb2.FileDescriptorProto) -> None:
+        """Generate global MCP server instance like the target file."""
+        service_name = service.name
+        
+        # Try to get service comment from source code info
+        service_index = list(proto_file.service).index(service)
+        service_comment = self._get_comment(proto_file.name, [6, service_index])
+        
+        # Create global MCP instance like the target file
+        if service_index == 0:  # Only create one global instance for the first service
+            lines.extend([
+                f'mcp = FastMCP("MCP Server from Proto")',
+                "",
+            ])
+        
+        # Generate tool functions for each method at global level
+        for method_index, method in enumerate(service.method):
+            # Check if this is a streaming method
+            is_client_stream = method.client_streaming
+            is_server_stream = method.server_streaming
+            
+            if is_client_stream or is_server_stream:
+                self._handle_streaming_method(lines, method, proto_file, service_index, method_index)
+            else:
+                self._generate_method_tool(lines, method, proto_file, service_index, method_index, indentation="")
+    
+    def _generate_factory_service(self, lines: List[str], service: descriptor_pb2.ServiceDescriptorProto, 
+                                 proto_file: descriptor_pb2.FileDescriptorProto) -> None:
+        """Generate MCP server factory function (original pattern for backwards compatibility)."""
         service_name = service.name
         
         # Apply custom patterns
@@ -690,7 +741,6 @@ class McpPlugin:
         server_name = server_pattern.format(service=service_name)
         
         # Try to get service comment from source code info
-        # Service path is [6, service_index] where 6 is the field number for services
         service_index = list(proto_file.service).index(service)
         service_comment = self._get_comment(proto_file.name, [6, service_index])
         
@@ -759,71 +809,97 @@ class McpPlugin:
         else:
             docstring = f'{indentation}    """Tool for {method_name} RPC method."""'
         
-        # Generate function definition (async if enabled)
-        if self._is_async_mode():
-            lines.extend([
-                f"{indentation}@mcp.tool()",
-                f"{indentation}async def {method_name_converted}({param_str}) -> dict:",
-                docstring,
-            ])
+        # Generate function definition (style-dependent decorators)
+        output_style = self._get_output_style()
+        if output_style == 'bridge':
+            # Bridge mode: explicit tool name and description from proto comments
+            if method_comment:
+                # Use the actual proto comment, clean it up for single line
+                tool_description = method_comment.replace('\n', ' ').strip()
+            else:
+                # Fallback to generic description
+                tool_description = f"Generated tool for {method_name} RPC method"
+            
+            if self._is_async_mode():
+                lines.extend([
+                    f'{indentation}@mcp.tool(name="{method_name}", description="{tool_description}")',
+                    f"{indentation}async def {method_name_converted}({param_str}):",
+                    docstring,
+                ])
+            else:
+                lines.extend([
+                    f'{indentation}@mcp.tool(name="{method_name}", description="{tool_description}")',
+                    f"{indentation}def {method_name_converted}({param_str}):",
+                    docstring,
+                ])
         else:
-            lines.extend([
-                f"{indentation}@mcp.tool()",
-                f"{indentation}def {method_name_converted}({param_str}) -> dict:",
-                docstring,
-            ])
+            # Factory mode: simple tool decorator with return type
+            if self._is_async_mode():
+                lines.extend([
+                    f"{indentation}@mcp.tool()",
+                    f"{indentation}async def {method_name_converted}({param_str}) -> dict:",
+                    docstring,
+                ])
+            else:
+                lines.extend([
+                    f"{indentation}@mcp.tool()",
+                    f"{indentation}def {method_name_converted}({param_str}) -> dict:",
+                    docstring,
+                ])
         
-        # Generate parameter documentation if we have input fields
-        if input_fields:
-            lines.append(f"{indentation}    # Parameters:")
-            for field in input_fields:
-                lines.append(f"{indentation}    #   {field['name']}: {field['type']}")
-            lines.append(f"{indentation}    ")
-        
-        # Generate input validation for required fields
-        required_fields = [field for field in input_fields if not field['optional']]
-        if required_fields:
-            lines.append(f"{indentation}    # Validate required fields")
-            for field in required_fields:
-                field_name = field['name']
-                field_type = field['type']
-                if field_type == "str":
-                    lines.extend([
-                        f"{indentation}    if not {field_name} or not isinstance({field_name}, str):",
-                        f"{indentation}        raise ValueError(f\"Required string field '{field_name}' is missing or invalid\")",
-                    ])
-                elif field_type == "int":
-                    lines.extend([
-                        f"{indentation}    if {field_name} is None or not isinstance({field_name}, int):",
-                        f"{indentation}        raise ValueError(f\"Required integer field '{field_name}' is missing or invalid\")",
-                    ])
-                elif field_type == "bool":
-                    lines.extend([
-                        f"{indentation}    if {field_name} is None or not isinstance({field_name}, bool):",
-                        f"{indentation}        raise ValueError(f\"Required boolean field '{field_name}' is missing or invalid\")",
-                    ])
-                elif field_type == "float":
-                    lines.extend([
-                        f"{indentation}    if {field_name} is None or not isinstance({field_name}, (int, float)):",
-                        f"{indentation}        raise ValueError(f\"Required float field '{field_name}' is missing or invalid\")",
-                    ])
-                elif field_type.startswith("List["):
-                    lines.extend([
-                        f"{indentation}    if {field_name} is None or not isinstance({field_name}, list):",
-                        f"{indentation}        raise ValueError(f\"Required list field '{field_name}' is missing or invalid\")",
-                    ])
-                elif field_type.startswith("Dict["):
-                    lines.extend([
-                        f"{indentation}    if {field_name} is None or not isinstance({field_name}, dict):",
-                        f"{indentation}        raise ValueError(f\"Required dict field '{field_name}' is missing or invalid\")",
-                    ])
-                else:
-                    # Generic validation for other types
-                    lines.extend([
-                        f"{indentation}    if {field_name} is None:",
-                        f"{indentation}        raise ValueError(f\"Required field '{field_name}' is missing\")",
-                    ])
-            lines.append(f"{indentation}    ")
+        # Add parameter documentation and validation for factory mode
+        if output_style == 'factory':
+            # Generate parameter documentation if we have input fields
+            if input_fields:
+                lines.append(f"{indentation}    # Parameters:")
+                for field in input_fields:
+                    lines.append(f"{indentation}    #   {field['name']}: {field['type']}")
+                lines.append(f"{indentation}    ")
+            
+            # Generate input validation for required fields
+            required_fields = [field for field in input_fields if not field['optional']]
+            if required_fields:
+                lines.append(f"{indentation}    # Validate required fields")
+                for field in required_fields:
+                    field_name = field['name']
+                    field_type = field['type']
+                    if field_type == "str":
+                        lines.extend([
+                            f"{indentation}    if not {field_name} or not isinstance({field_name}, str):",
+                            f"{indentation}        raise ValueError(f\"Required string field '{field_name}' is missing or invalid\")",
+                        ])
+                    elif field_type == "int":
+                        lines.extend([
+                            f"{indentation}    if {field_name} is None or not isinstance({field_name}, int):",
+                            f"{indentation}        raise ValueError(f\"Required integer field '{field_name}' is missing or invalid\")",
+                        ])
+                    elif field_type == "bool":
+                        lines.extend([
+                            f"{indentation}    if {field_name} is None or not isinstance({field_name}, bool):",
+                            f"{indentation}        raise ValueError(f\"Required boolean field '{field_name}' is missing or invalid\")",
+                        ])
+                    elif field_type == "float":
+                        lines.extend([
+                            f"{indentation}    if {field_name} is None or not isinstance({field_name}, (int, float)):",
+                            f"{indentation}        raise ValueError(f\"Required float field '{field_name}' is missing or invalid\")",
+                        ])
+                    elif field_type.startswith("List["):
+                        lines.extend([
+                            f"{indentation}    if {field_name} is None or not isinstance({field_name}, list):",
+                            f"{indentation}        raise ValueError(f\"Required list field '{field_name}' is missing or invalid\")",
+                        ])
+                    elif field_type.startswith("Dict["):
+                        lines.extend([
+                            f"{indentation}    if {field_name} is None or not isinstance({field_name}, dict):",
+                            f"{indentation}        raise ValueError(f\"Required dict field '{field_name}' is missing or invalid\")",
+                        ])
+                    else:
+                        # Generic validation for other types
+                        lines.extend([
+                            f"{indentation}    if {field_name} is None:",
+                            f"{indentation}        raise ValueError(f\"Required field '{field_name}' is missing\")",
+                        ])
+                lines.append(f"{indentation}    ")
         
         # Generate request message construction
         pb2_module = proto_file.name.replace(".proto", "_pb2").replace("/", ".")
@@ -866,11 +942,13 @@ class McpPlugin:
         
         lines.append(f"{indentation}    ")
         
-        # Generate implementation based on whether gRPC target is specified
-        grpc_target = self._get_grpc_target()
-        if grpc_target:
+        # Generate implementation based on output style
+        output_style = self._get_output_style()
+        if output_style == 'bridge':
+            # Generate functional gRPC call for bridge mode
             self._generate_grpc_call(lines, method, proto_file, indentation)
         else:
+            # Generate stub implementation for factory mode
             self._generate_stub_implementation(lines, method, proto_file, indentation)
     
     def _generate_grpc_call(self, lines: List[str], method: descriptor_pb2.MethodDescriptorProto,
@@ -891,101 +969,19 @@ class McpPlugin:
             if service_name:
                 break
         
-        grpc_target = self._get_grpc_target()
+        grpc_target = self._get_grpc_target() or 'localhost:50051'  # Default target like the target file
         timeout = self._get_grpc_timeout()
-        is_insecure = self._is_insecure_channel()
+        is_insecure = self._is_insecure_channel() if self._get_grpc_target() else True  # Default to insecure like target
         is_async = self._is_async_mode()
         auth_type = self._get_auth_type()
         
+        # Generate simple direct gRPC call like the target file
         lines.extend([
-            f"{indentation}    try:",
-        ])
-        
-        # Generate authentication metadata if needed
-        if auth_type != 'none' and self._should_generate_auth_metadata():
-            self._generate_auth_metadata(lines, auth_type, indentation)
-        
-        if is_async:
-            # Async gRPC call
-            if is_insecure:
-                lines.extend([
-                    f"{indentation}        # Create async insecure gRPC channel",
-                    f"{indentation}        async with grpc.aio.insecure_channel('{grpc_target}') as channel:",
-                ])
-            else:
-                lines.extend([
-                    f"{indentation}        # Create async secure gRPC channel",
-                    f"{indentation}        async with grpc.aio.secure_channel('{grpc_target}', grpc.ssl_channel_credentials()) as channel:",
-                ])
-            
-            lines.extend([
-                f"{indentation}            stub = {grpc_module}.{service_name}Stub(channel)",
-            ])
-            
-            # Add metadata to the call if auth is enabled
-            if auth_type != 'none':
-                lines.append(f"{indentation}            response = await stub.{method_name}(request, timeout={timeout}, metadata=metadata)")
-            else:
-                lines.append(f"{indentation}            response = await stub.{method_name}(request, timeout={timeout})")
-            
-            lines.extend([
-                f"{indentation}        ",
-                f"{indentation}        # Convert response to dict for MCP",
-                f"{indentation}        result = json_format.MessageToDict(response, use_integers_for_enums=True)",
-                f"{indentation}        return result",
-            ])
-        else:
-            # Sync gRPC call
-            if is_insecure:
-                lines.extend([
-                    f"{indentation}        # Create insecure gRPC channel",
-                    f"{indentation}        with grpc.insecure_channel('{grpc_target}') as channel:",
-                ])
-            else:
-                lines.extend([
-                    f"{indentation}        # Create secure gRPC channel",
-                    f"{indentation}        with grpc.secure_channel('{grpc_target}', grpc.ssl_channel_credentials()) as channel:",
-                ])
-            
-            lines.extend([
-                f"{indentation}            stub = {grpc_module}.{service_name}Stub(channel)",
-            ])
-            
-            # Add metadata to the call if auth is enabled
-            if auth_type != 'none':
-                lines.append(f"{indentation}            response = stub.{method_name}(request, timeout={timeout}, metadata=metadata)")
-            else:
-                lines.append(f"{indentation}            response = stub.{method_name}(request, timeout={timeout})")
-            
-            lines.extend([
-                f"{indentation}        ",
-                f"{indentation}        # Convert response to dict for MCP",
-                f"{indentation}        result = json_format.MessageToDict(response, use_integers_for_enums=True)",
-                f"{indentation}        return result",
-            ])
-        
-        lines.extend([
-            f"{indentation}        ",
-            f"{indentation}    except grpc.RpcError as e:",
-            f"{indentation}        # Handle gRPC-specific errors",
-            f"{indentation}        return {{",
-            f"{indentation}            \"error\": {{",
-            f"{indentation}                \"type\": \"gRPC Error\",",
-            f"{indentation}                \"code\": e.code().name,",
-            f"{indentation}                \"message\": e.details(),",
-            f"{indentation}                \"method\": \"{method_name}\"",
-            f"{indentation}            }}",
-            f"{indentation}        }}",
-            f"{indentation}    except Exception as e:",
-            f"{indentation}        # Handle other errors",
-            f"{indentation}        return {{",
-            f"{indentation}            \"error\": {{",
-            f"{indentation}                \"type\": type(e).__name__,",
-            f"{indentation}                \"message\": str(e),",
-            f"{indentation}                \"method\": \"{method_name}\"",
-            f"{indentation}            }}",
-            f"{indentation}        }}",
-            f"{indentation}",
+            f"{indentation}    channel = grpc.insecure_channel('{grpc_target}')",
+            f"{indentation}    stub = {grpc_module}.{service_name}Stub(channel)",
+            f"{indentation}    response = stub.{method_name}(request)",
+            f"{indentation}    print(response)",
+            "",
         ])
     
     def _generate_stub_implementation(self, lines: List[str], method: descriptor_pb2.MethodDescriptorProto,
