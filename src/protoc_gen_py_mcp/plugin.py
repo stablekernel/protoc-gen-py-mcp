@@ -111,6 +111,16 @@ class McpPlugin:
         """Get output generation style."""
         return self.parameters.get("output_style", "bridge")
 
+    def _has_optional_fields(self, proto_file: descriptor_pb2.FileDescriptorProto) -> bool:
+        """Check if proto file has any optional fields that would need Optional typing."""
+        for service in proto_file.service:
+            for method in service.method:
+                input_fields = self._analyze_message_fields(method.input_type)
+                for field in input_fields:
+                    if field.get("optional", False):
+                        return True
+        return False
+
     def parse_parameters(self, parameter_string: str) -> None:
         """
         Parse plugin parameters from the protoc parameter string.
@@ -690,18 +700,37 @@ class McpPlugin:
         self, lines: List[str], proto_file: descriptor_pb2.FileDescriptorProto
     ) -> None:
         """Generate necessary imports for the generated code."""
+        output_style = self._get_output_style()
+
         # Basic imports
         if self._is_async_mode():
             lines.append("import asyncio")
 
+        # Import typing only what's needed
+        typing_imports = []
+        if output_style == "factory":
+            # Factory mode needs more typing imports for complex parameters and return types
+            typing_imports = ["from typing import Optional, List, Dict, Any"]
+        else:
+            # Bridge mode needs minimal typing imports
+            typing_imports = (
+                ["from typing import Optional"] if self._has_optional_fields(proto_file) else []
+            )
+
+        if typing_imports:
+            lines.extend(typing_imports)
+
         lines.extend(
             [
-                "from typing import Optional, List, Dict, Any",
                 "from fastmcp import FastMCP",
-                "from google.protobuf import json_format",
-                "import grpc",  # Always include gRPC imports for functional bridge
             ]
         )
+
+        # Only include json_format for factory mode
+        if output_style == "factory":
+            lines.append("from google.protobuf import json_format")
+
+        lines.append("import grpc")  # Always include gRPC imports
 
         lines.append("")
 
@@ -709,7 +738,7 @@ class McpPlugin:
         pb2_module = proto_file.name.replace(".proto", "_pb2").replace("/", ".")
         lines.append(f"import {pb2_module}")
 
-        # Always import gRPC stub for functional bridge
+        # Always import gRPC stub
         grpc_module = proto_file.name.replace(".proto", "_pb2_grpc").replace("/", ".")
         lines.append(f"import {grpc_module}")
 
@@ -720,9 +749,9 @@ class McpPlugin:
         lines.extend(
             [
                 "",
+                "",
                 "if __name__ == '__main__':",
                 "    mcp.run()",
-                "",
             ]
         )
 
@@ -761,6 +790,11 @@ class McpPlugin:
 
         # Generate tool functions for each method at global level
         for method_index, method in enumerate(service.method):
+            # Add proper spacing between functions (2 blank lines for module-level functions)
+            if method_index > 0:
+                lines.append("")  # Add extra blank line between functions for PEP8
+            lines.append("")  # Always add blank line before function decorator
+
             # Check if this is a streaming method
             is_client_stream = method.client_streaming
             is_server_stream = method.server_streaming
@@ -869,7 +903,9 @@ class McpPlugin:
 
         # Create enhanced docstring with method comment if available (if comments are enabled)
         if self._include_comments() and method_comment:
-            docstring = f'{indentation}    """Tool for {method_name} RPC method.\n{indentation}    \n{indentation}    {method_comment}\n{indentation}    """'
+            # Clean up the comment to avoid trailing whitespace
+            clean_comment = method_comment.strip()
+            docstring = f'{indentation}    """Tool for {method_name} RPC method.\n{indentation}\n{indentation}    {clean_comment}\n{indentation}    """'
         else:
             docstring = f'{indentation}    """Tool for {method_name} RPC method."""'
 
@@ -1015,7 +1051,6 @@ class McpPlugin:
                 lines.append(
                     f"{indentation}    # Only one of [{field_list}] should be provided for oneof '{oneof_name}'"
                 )
-            lines.append(f"{indentation}    ")
 
         # Generate field assignment code
         for field in input_fields:
@@ -1029,9 +1064,9 @@ class McpPlugin:
             else:
                 lines.append(f"{indentation}    request.{field['name']} = {field['name']}")
 
-        # Generate response handling with error handling
-
-        lines.append(f"{indentation}    ")
+        # Add spacing before gRPC call
+        if input_fields:  # Only add space if there were fields assigned
+            lines.append("")
 
         # Generate implementation based on output style
         output_style = self._get_output_style()
@@ -1074,7 +1109,6 @@ class McpPlugin:
                 f"{indentation}    stub = {grpc_module}.{service_name}Stub(channel)",
                 f"{indentation}    response = stub.{method_name}(request)",
                 f"{indentation}    print(response)",
-                "",
             ]
         )
 
