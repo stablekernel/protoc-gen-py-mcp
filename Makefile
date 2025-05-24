@@ -1,7 +1,7 @@
 PROTO_SRC = protos/example.proto
 PY_OUT = .
 
-.PHONY: all proto clean run-server run-client
+.PHONY: all proto clean run-server run-client test
 
 all: proto
 
@@ -17,3 +17,6 @@ run-server:
 
 run-client:
 	python grpc_client.py
+
+test:
+	uv run pytest tests/ -v

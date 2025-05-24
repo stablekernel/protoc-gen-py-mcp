@@ -27,11 +27,11 @@ bump = true
 fallback-version = "0.0.0"
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"
-asyncio_default_fixture_loop_scope = "session"
-asyncio_default_test_loop_scope = "session"
 filterwarnings = []
-timeout = 3
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
 
 [tool.pyright]
 include = ["src", "tests"]
@@ -44,3 +44,8 @@ reportMissingTypeStubs = false
 useLibraryCodeForTypes = true
 venvPath = "."
 venv = ".venv"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.5",
+]

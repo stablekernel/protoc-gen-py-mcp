@@ -1,0 +1,1 @@
+"""Test suite for protoc-gen-py-mcp plugin."""

@@ -27,6 +27,9 @@ class McpPlugin:
         self.enum_types: Dict[str, descriptor_pb2.EnumDescriptorProto] = {}
         self.file_packages: Dict[str, str] = {}  # filename -> package name
         
+        # Comment extraction
+        self.source_comments: Dict[str, Dict[tuple, str]] = {}  # filename -> path -> comment
+        
     def log_debug(self, message: str) -> None:
         """Log debug message to stderr if debug mode is enabled."""
         if self.debug_mode:
@@ -75,6 +78,9 @@ class McpPlugin:
             # Store package information
             self.file_packages[proto_file.name] = proto_file.package
             
+            # Extract comments from source code info
+            self._extract_comments(proto_file)
+            
             # Index message types
             self._index_messages(proto_file.message_type, proto_file.package)
             
@@ -82,6 +88,51 @@ class McpPlugin:
             self._index_enums(proto_file.enum_type, proto_file.package)
         
         self.log_debug(f"Indexed {len(self.message_types)} message types and {len(self.enum_types)} enum types")
+    
+    def _extract_comments(self, proto_file: descriptor_pb2.FileDescriptorProto) -> None:
+        """
+        Extract comments from proto file source code info.
+        
+        Args:
+            proto_file: The proto file descriptor to extract comments from
+        """
+        if not proto_file.source_code_info:
+            return
+        
+        comments = {}
+        for location in proto_file.source_code_info.location:
+            # Convert path list to tuple for use as dict key
+            path_key = tuple(location.path)
+            
+            # Combine leading and trailing comments
+            comment_parts = []
+            if location.leading_comments:
+                comment_parts.append(location.leading_comments.strip())
+            if location.trailing_comments:
+                comment_parts.append(location.trailing_comments.strip())
+            
+            if comment_parts:
+                comments[path_key] = " ".join(comment_parts)
+        
+        self.source_comments[proto_file.name] = comments
+        self.log_debug(f"Extracted {len(comments)} comments from {proto_file.name}")
+    
+    def _get_comment(self, proto_file_name: str, path: List[int]) -> str:
+        """
+        Get comment for a specific path in a proto file.
+        
+        Args:
+            proto_file_name: Name of the proto file
+            path: Path to the element (e.g., service, method, message field)
+            
+        Returns:
+            Comment string if found, empty string otherwise
+        """
+        if proto_file_name not in self.source_comments:
+            return ""
+        
+        path_key = tuple(path)
+        return self.source_comments[proto_file_name].get(path_key, "")
     
     def _index_messages(self, messages: List[descriptor_pb2.DescriptorProto], package: str, 
                        parent_name: str = "") -> None:
@@ -502,16 +553,27 @@ class McpPlugin:
         service_name = service.name
         function_name = f"create_{service_name.lower()}_server"
         
+        # Try to get service comment from source code info
+        # Service path is [6, service_index] where 6 is the field number for services
+        service_index = list(proto_file.service).index(service)
+        service_comment = self._get_comment(proto_file.name, [6, service_index])
+        
+        # Create docstring with comment if available
+        if service_comment:
+            docstring = f'    """Create an MCP server for {service_name} service tools.\n    \n    {service_comment}\n    """'
+        else:
+            docstring = f'    """Create an MCP server for {service_name} service tools."""'
+        
         lines.extend([
             f"def {function_name}() -> FastMCP:",
-            f'    """Create an MCP server for {service_name} service tools."""',
+            docstring,
             f'    mcp = FastMCP("{service_name}")',
             "",
         ])
         
         # Generate tool functions for each method
-        for method in service.method:
-            self._generate_method_tool(lines, method, proto_file, indentation="    ")
+        for method_index, method in enumerate(service.method):
+            self._generate_method_tool(lines, method, proto_file, service_index, method_index, indentation="    ")
         
         lines.extend([
             "    return mcp",
@@ -519,7 +581,8 @@ class McpPlugin:
         ])
     
     def _generate_method_tool(self, lines: List[str], method: descriptor_pb2.MethodDescriptorProto,
-                             proto_file: descriptor_pb2.FileDescriptorProto, indentation: str = "") -> None:
+                             proto_file: descriptor_pb2.FileDescriptorProto, service_index: int, 
+                             method_index: int, indentation: str = "") -> None:
         """Generate an MCP tool function for a gRPC method."""
         method_name = method.name
         method_name_snake = self._camel_to_snake(method_name)
@@ -528,19 +591,35 @@ class McpPlugin:
         input_fields = self._analyze_message_fields(method.input_type)
         
         # Generate function signature with parameters
-        params = []
+        # Separate required and optional parameters to ensure proper Python syntax
+        required_params = []
+        optional_params = []
+        
         for field in input_fields:
             if field['optional']:
-                params.append(f"{field['name']}: {field['type']} = None")
+                optional_params.append(f"{field['name']}: {field['type']} = None")
             else:
-                params.append(f"{field['name']}: {field['type']}")
+                required_params.append(f"{field['name']}: {field['type']}")
         
+        # Required parameters must come before optional parameters in Python
+        params = required_params + optional_params
         param_str = ", ".join(params)
+        
+        # Try to get method comment from source code info
+        # Method path is [6, service_index, 2, method_index] where:
+        # 6 = services field, 2 = methods field within service
+        method_comment = self._get_comment(proto_file.name, [6, service_index, 2, method_index])
+        
+        # Create enhanced docstring with method comment if available
+        if method_comment:
+            docstring = f'{indentation}    """Tool for {method_name} RPC method.\n{indentation}    \n{indentation}    {method_comment}\n{indentation}    """'
+        else:
+            docstring = f'{indentation}    """Tool for {method_name} RPC method."""'
         
         lines.extend([
             f"{indentation}@mcp.tool()",
             f"{indentation}def {method_name_snake}({param_str}) -> dict:",
-            f'{indentation}    """Tool for {method_name} RPC method."""',
+            docstring,
         ])
         
         # Generate parameter documentation if we have input fields
@@ -548,6 +627,51 @@ class McpPlugin:
             lines.append(f"{indentation}    # Parameters:")
             for field in input_fields:
                 lines.append(f"{indentation}    #   {field['name']}: {field['type']}")
+            lines.append(f"{indentation}    ")
+        
+        # Generate input validation for required fields
+        required_fields = [field for field in input_fields if not field['optional']]
+        if required_fields:
+            lines.append(f"{indentation}    # Validate required fields")
+            for field in required_fields:
+                field_name = field['name']
+                field_type = field['type']
+                if field_type == "str":
+                    lines.extend([
+                        f"{indentation}    if not {field_name} or not isinstance({field_name}, str):",
+                        f"{indentation}        raise ValueError(f\"Required string field '{field_name}' is missing or invalid\")",
+                    ])
+                elif field_type == "int":
+                    lines.extend([
+                        f"{indentation}    if {field_name} is None or not isinstance({field_name}, int):",
+                        f"{indentation}        raise ValueError(f\"Required integer field '{field_name}' is missing or invalid\")",
+                    ])
+                elif field_type == "bool":
+                    lines.extend([
+                        f"{indentation}    if {field_name} is None or not isinstance({field_name}, bool):",
+                        f"{indentation}        raise ValueError(f\"Required boolean field '{field_name}' is missing or invalid\")",
+                    ])
+                elif field_type == "float":
+                    lines.extend([
+                        f"{indentation}    if {field_name} is None or not isinstance({field_name}, (int, float)):",
+                        f"{indentation}        raise ValueError(f\"Required float field '{field_name}' is missing or invalid\")",
+                    ])
+                elif field_type.startswith("List["):
+                    lines.extend([
+                        f"{indentation}    if {field_name} is None or not isinstance({field_name}, list):",
+                        f"{indentation}        raise ValueError(f\"Required list field '{field_name}' is missing or invalid\")",
+                    ])
+                elif field_type.startswith("Dict["):
+                    lines.extend([
+                        f"{indentation}    if {field_name} is None or not isinstance({field_name}, dict):",
+                        f"{indentation}        raise ValueError(f\"Required dict field '{field_name}' is missing or invalid\")",
+                    ])
+                else:
+                    # Generic validation for other types
+                    lines.extend([
+                        f"{indentation}    if {field_name} is None:",
+                        f"{indentation}        raise ValueError(f\"Required field '{field_name}' is missing\")",
+                    ])
             lines.append(f"{indentation}    ")
         
         # Generate request message construction
@@ -586,18 +710,29 @@ class McpPlugin:
             else:
                 lines.append(f"{indentation}    request.{field['name']} = {field['name']}")
         
-        # Generate response handling
+        # Generate response handling with error handling
         output_type_name = method.output_type.split('.')[-1]  # Get the simple name
         
         lines.extend([
             f"{indentation}    ",
-            f"{indentation}    # TODO: Implement actual {method_name} logic here",
-            f"{indentation}    # For now, create an empty response",
-            f"{indentation}    response = {pb2_module}.{output_type_name}()",
-            f"{indentation}    ",
-            f"{indentation}    # Convert response to dict for MCP",
-            f"{indentation}    result = json_format.MessageToDict(response, use_integers_for_enums=True)",
-            f"{indentation}    return result",
+            f"{indentation}    try:",
+            f"{indentation}        # TODO: Implement actual {method_name} logic here",
+            f"{indentation}        # For now, create an empty response",
+            f"{indentation}        response = {pb2_module}.{output_type_name}()",
+            f"{indentation}        ",
+            f"{indentation}        # Convert response to dict for MCP",
+            f"{indentation}        result = json_format.MessageToDict(response, use_integers_for_enums=True)",
+            f"{indentation}        return result",
+            f"{indentation}        ",
+            f"{indentation}    except Exception as e:",
+            f"{indentation}        # Return error information in a standardized format",
+            f"{indentation}        return {{",
+            f"{indentation}            \"error\": {{",
+            f"{indentation}                \"type\": type(e).__name__,",
+            f"{indentation}                \"message\": str(e),",
+            f"{indentation}                \"method\": \"{method_name}\"",
+            f"{indentation}            }}",
+            f"{indentation}        }}",
             f"{indentation}",
         ])
     

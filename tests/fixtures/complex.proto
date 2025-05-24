@@ -1,0 +1,54 @@
+syntax = "proto3";
+
+package test.v1;
+
+// Complex test proto covering advanced features
+enum Priority {
+  PRIORITY_UNSPECIFIED = 0;
+  PRIORITY_LOW = 1;
+  PRIORITY_HIGH = 2;
+}
+
+message NestedMessage {
+  string text = 1;
+  int64 timestamp = 2;
+}
+
+message ComplexRequest {
+  // Basic fields
+  string name = 1;
+  
+  // Optional field
+  optional string description = 2;
+  
+  // Repeated fields
+  repeated string tags = 3;
+  repeated int32 numbers = 4;
+  
+  // Enum field
+  Priority priority = 5;
+  
+  // Nested message
+  NestedMessage metadata = 6;
+  
+  // Map fields
+  map<string, string> attributes = 7;
+  map<string, int32> counters = 8;
+  
+  // Oneof field
+  oneof action {
+    string create = 9;
+    string update = 10;
+    bool delete = 11;
+  }
+}
+
+message ComplexResponse {
+  bool success = 1;
+  repeated string errors = 2;
+  map<string, string> results = 3;
+}
+
+service ComplexService {
+  rpc ProcessComplex(ComplexRequest) returns (ComplexResponse) {}
+}
