@@ -1,7 +1,7 @@
 PROTO_SRC = protos/example.proto
 PY_OUT = .
 
-.PHONY: all proto clean run-server run-client test
+.PHONY: all proto clean run-server run-client test lint format check-format mypy coverage
 
 all: proto
 
@@ -20,3 +20,28 @@ run-client:
 
 test:
 	uv run pytest tests/ -v
+
+# Linting and formatting
+lint:
+	uv run flake8 src tests
+	uv run mypy src
+
+format:
+	uv run black src tests
+	uv run isort src tests
+
+check-format:
+	uv run black --check src tests
+	uv run isort --check-only src tests
+
+mypy:
+	uv run mypy src
+
+coverage:
+	uv run coverage run -m pytest tests/
+	uv run coverage report
+	uv run coverage html
+
+# Run all quality checks
+check: test lint check-format
+	@echo "All quality checks passed!"
