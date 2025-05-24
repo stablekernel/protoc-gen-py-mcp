@@ -25,7 +25,7 @@ def run_protoc_with_plugin(
         output_dir: Directory to write generated files
         include_dirs: Additional include directories
         plugin_path: Path to the plugin executable (auto-detected if None)
-        plugin_options: Plugin options string (e.g., "output_style=factory")
+        plugin_options: Plugin options string
 
     Returns:
         subprocess.CompletedProcess with the result

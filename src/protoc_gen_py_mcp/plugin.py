@@ -107,10 +107,6 @@ class McpPlugin:
         """Check if auth metadata should be generated."""
         return self.parameters.get("auth_metadata", "true").lower() in ("true", "1", "yes")
 
-    def _get_output_style(self) -> str:
-        """Get output generation style."""
-        return self.parameters.get("output_style", "bridge")
-
     def _has_optional_fields(self, proto_file: descriptor_pb2.FileDescriptorProto) -> bool:
         """Check if proto file has any optional fields that would need Optional typing."""
         for service in proto_file.service:
@@ -144,7 +140,6 @@ class McpPlugin:
         - auth_type: Authentication type (none, bearer, api_key, mtls, custom)
         - auth_header: Header name for API key/bearer auth (default: Authorization)
         - auth_metadata: Generate metadata injection for auth (default: true)
-        - output_style: Generation style (bridge, factory) - bridge is functional gRPC client, factory is template pattern
         """
         if not parameter_string:
             return
@@ -677,9 +672,8 @@ class McpPlugin:
             self._generate_service(lines, service, proto_file)
             service_names.append(service.name)
 
-        # Generate main execution block only for bridge mode
-        if self._get_output_style() == "bridge":
-            self._generate_main_block(lines, service_names)
+        # Generate main execution block
+        self._generate_main_block(lines, service_names)
 
         return "\n".join(lines) + "\n"
 
@@ -700,22 +694,14 @@ class McpPlugin:
         self, lines: List[str], proto_file: descriptor_pb2.FileDescriptorProto
     ) -> None:
         """Generate necessary imports for the generated code."""
-        output_style = self._get_output_style()
-
         # Basic imports
         if self._is_async_mode():
             lines.append("import asyncio")
 
         # Import typing only what's needed
-        typing_imports = []
-        if output_style == "factory":
-            # Factory mode needs more typing imports for complex parameters and return types
-            typing_imports = ["from typing import Optional, List, Dict, Any"]
-        else:
-            # Bridge mode needs minimal typing imports
-            typing_imports = (
-                ["from typing import Optional"] if self._has_optional_fields(proto_file) else []
-            )
+        typing_imports = (
+            ["from typing import Optional"] if self._has_optional_fields(proto_file) else []
+        )
 
         if typing_imports:
             lines.extend(typing_imports)
@@ -725,10 +711,6 @@ class McpPlugin:
                 "from fastmcp import FastMCP",
             ]
         )
-
-        # Only include json_format for factory mode
-        if output_style == "factory":
-            lines.append("from google.protobuf import json_format")
 
         lines.append("import grpc")  # Always include gRPC imports
 
@@ -761,15 +743,10 @@ class McpPlugin:
         service: descriptor_pb2.ServiceDescriptorProto,
         proto_file: descriptor_pb2.FileDescriptorProto,
     ) -> None:
-        """Generate MCP server code based on output style."""
-        output_style = self._get_output_style()
+        """Generate MCP server code."""
+        self._generate_service_impl(lines, service, proto_file)
 
-        if output_style == "factory":
-            self._generate_factory_service(lines, service, proto_file)
-        else:  # bridge (default)
-            self._generate_bridge_service(lines, service, proto_file)
-
-    def _generate_bridge_service(
+    def _generate_service_impl(
         self,
         lines: List[str],
         service: descriptor_pb2.ServiceDescriptorProto,
@@ -807,63 +784,6 @@ class McpPlugin:
                 self._generate_method_tool(
                     lines, method, proto_file, service_index, method_index, indentation=""
                 )
-
-    def _generate_factory_service(
-        self,
-        lines: List[str],
-        service: descriptor_pb2.ServiceDescriptorProto,
-        proto_file: descriptor_pb2.FileDescriptorProto,
-    ) -> None:
-        """Generate MCP server factory function (original pattern for backwards compatibility)."""
-        service_name = service.name
-
-        # Apply custom patterns
-        function_pattern = self._get_function_name_pattern()
-        function_name = function_pattern.format(service=service_name.lower())
-
-        server_pattern = self._get_server_name_pattern()
-        server_name = server_pattern.format(service=service_name)
-
-        # Try to get service comment from source code info
-        service_index = list(proto_file.service).index(service)
-        service_comment = self._get_comment(proto_file.name, [6, service_index])
-
-        # Create docstring with comment if available
-        if service_comment:
-            docstring = f'    """Create an MCP server for {service_name} service tools.\n    \n    {service_comment}\n    """'
-        else:
-            docstring = f'    """Create an MCP server for {service_name} service tools."""'
-
-        lines.extend(
-            [
-                f"def {function_name}() -> FastMCP:",
-                docstring,
-                f'    mcp = FastMCP("{server_name}")',
-                "",
-            ]
-        )
-
-        # Generate tool functions for each method
-        for method_index, method in enumerate(service.method):
-            # Check if this is a streaming method
-            is_client_stream = method.client_streaming
-            is_server_stream = method.server_streaming
-
-            if is_client_stream or is_server_stream:
-                self._handle_streaming_method(
-                    lines, method, proto_file, service_index, method_index
-                )
-            else:
-                self._generate_method_tool(
-                    lines, method, proto_file, service_index, method_index, indentation="    "
-                )
-
-        lines.extend(
-            [
-                "    return mcp",
-                "",
-            ]
-        )
 
     def _generate_method_tool(
         self,
@@ -909,119 +829,30 @@ class McpPlugin:
         else:
             docstring = f'{indentation}    """Tool for {method_name} RPC method."""'
 
-        # Generate function definition (style-dependent decorators)
-        output_style = self._get_output_style()
-        if output_style == "bridge":
-            # Bridge mode: explicit tool name and description from proto comments
-            if method_comment:
-                # Use the actual proto comment, clean it up for single line
-                tool_description = method_comment.replace("\n", " ").strip()
-            else:
-                # Fallback to generic description
-                tool_description = f"Generated tool for {method_name} RPC method"
-
-            if self._is_async_mode():
-                lines.extend(
-                    [
-                        f'{indentation}@mcp.tool(name="{method_name}", description="{tool_description}")',
-                        f"{indentation}async def {method_name_converted}({param_str}):",
-                        docstring,
-                    ]
-                )
-            else:
-                lines.extend(
-                    [
-                        f'{indentation}@mcp.tool(name="{method_name}", description="{tool_description}")',
-                        f"{indentation}def {method_name_converted}({param_str}):",
-                        docstring,
-                    ]
-                )
+        # Generate function definition with explicit tool name and description
+        if method_comment:
+            # Use the actual proto comment, clean it up for single line
+            tool_description = method_comment.replace("\n", " ").strip()
         else:
-            # Factory mode: simple tool decorator with return type
-            if self._is_async_mode():
-                lines.extend(
-                    [
-                        f"{indentation}@mcp.tool()",
-                        f"{indentation}async def {method_name_converted}({param_str}) -> dict:",
-                        docstring,
-                    ]
-                )
-            else:
-                lines.extend(
-                    [
-                        f"{indentation}@mcp.tool()",
-                        f"{indentation}def {method_name_converted}({param_str}) -> dict:",
-                        docstring,
-                    ]
-                )
+            # Fallback to generic description
+            tool_description = f"Generated tool for {method_name} RPC method"
 
-        # Add parameter documentation and validation for factory mode
-        if output_style == "factory":
-            # Generate parameter documentation if we have input fields
-            if input_fields:
-                lines.append(f"{indentation}    # Parameters:")
-                for field in input_fields:
-                    lines.append(f"{indentation}    #   {field['name']}: {field['type']}")
-                lines.append(f"{indentation}    ")
-
-            # Generate input validation for required fields
-            required_fields = [field for field in input_fields if not field["optional"]]
-            if required_fields:
-                lines.append(f"{indentation}    # Validate required fields")
-                for field in required_fields:
-                    field_name = field["name"]
-                    field_type = field["type"]
-                    if field_type == "str":
-                        lines.extend(
-                            [
-                                f"{indentation}    if not {field_name} or not isinstance({field_name}, str):",
-                                f"{indentation}        raise ValueError(f\"Required string field '{field_name}' is missing or invalid\")",
-                            ]
-                        )
-                    elif field_type == "int":
-                        lines.extend(
-                            [
-                                f"{indentation}    if {field_name} is None or not isinstance({field_name}, int):",
-                                f"{indentation}        raise ValueError(f\"Required integer field '{field_name}' is missing or invalid\")",
-                            ]
-                        )
-                    elif field_type == "bool":
-                        lines.extend(
-                            [
-                                f"{indentation}    if {field_name} is None or not isinstance({field_name}, bool):",
-                                f"{indentation}        raise ValueError(f\"Required boolean field '{field_name}' is missing or invalid\")",
-                            ]
-                        )
-                    elif field_type == "float":
-                        lines.extend(
-                            [
-                                f"{indentation}    if {field_name} is None or not isinstance({field_name}, (int, float)):",
-                                f"{indentation}        raise ValueError(f\"Required float field '{field_name}' is missing or invalid\")",
-                            ]
-                        )
-                    elif field_type.startswith("List["):
-                        lines.extend(
-                            [
-                                f"{indentation}    if {field_name} is None or not isinstance({field_name}, list):",
-                                f"{indentation}        raise ValueError(f\"Required list field '{field_name}' is missing or invalid\")",
-                            ]
-                        )
-                    elif field_type.startswith("Dict["):
-                        lines.extend(
-                            [
-                                f"{indentation}    if {field_name} is None or not isinstance({field_name}, dict):",
-                                f"{indentation}        raise ValueError(f\"Required dict field '{field_name}' is missing or invalid\")",
-                            ]
-                        )
-                    else:
-                        # Generic validation for other types
-                        lines.extend(
-                            [
-                                f"{indentation}    if {field_name} is None:",
-                                f"{indentation}        raise ValueError(f\"Required field '{field_name}' is missing\")",
-                            ]
-                        )
-                lines.append(f"{indentation}    ")
+        if self._is_async_mode():
+            lines.extend(
+                [
+                    f'{indentation}@mcp.tool(name="{method_name}", description="{tool_description}")',
+                    f"{indentation}async def {method_name_converted}({param_str}):",
+                    docstring,
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    f'{indentation}@mcp.tool(name="{method_name}", description="{tool_description}")',
+                    f"{indentation}def {method_name_converted}({param_str}):",
+                    docstring,
+                ]
+            )
 
         # Generate request message construction
         pb2_module = proto_file.name.replace(".proto", "_pb2").replace("/", ".")
@@ -1068,14 +899,8 @@ class McpPlugin:
         if input_fields:  # Only add space if there were fields assigned
             lines.append("")
 
-        # Generate implementation based on output style
-        output_style = self._get_output_style()
-        if output_style == "bridge":
-            # Generate functional gRPC call for bridge mode
-            self._generate_grpc_call(lines, method, proto_file, indentation)
-        else:
-            # Generate stub implementation for factory mode
-            self._generate_stub_implementation(lines, method, proto_file, indentation)
+        # Generate functional gRPC call
+        self._generate_grpc_call(lines, method, proto_file, indentation)
 
     def _generate_grpc_call(
         self,
@@ -1109,42 +934,6 @@ class McpPlugin:
                 f"{indentation}    stub = {grpc_module}.{service_name}Stub(channel)",
                 f"{indentation}    response = stub.{method_name}(request)",
                 f"{indentation}    print(response)",
-            ]
-        )
-
-    def _generate_stub_implementation(
-        self,
-        lines: List[str],
-        method: descriptor_pb2.MethodDescriptorProto,
-        proto_file: descriptor_pb2.FileDescriptorProto,
-        indentation: str,
-    ) -> None:
-        """Generate stub implementation (TODO for user to fill in)."""
-        method_name = method.name
-        pb2_module = proto_file.name.replace(".proto", "_pb2").replace("/", ".")
-        output_type_name = method.output_type.split(".")[-1]
-
-        lines.extend(
-            [
-                f"{indentation}    try:",
-                f"{indentation}        # TODO: Implement actual {method_name} logic here",
-                f"{indentation}        # For now, create an empty response",
-                f"{indentation}        response = {pb2_module}.{output_type_name}()",
-                f"{indentation}        ",
-                f"{indentation}        # Convert response to dict for MCP",
-                f"{indentation}        result = json_format.MessageToDict(response, use_integers_for_enums=True)",
-                f"{indentation}        return result",
-                f"{indentation}        ",
-                f"{indentation}    except Exception as e:",
-                f"{indentation}        # Return error information in a standardized format",
-                f"{indentation}        return {{",
-                f'{indentation}            "error": {{',
-                f'{indentation}                "type": type(e).__name__,',
-                f'{indentation}                "message": str(e),',
-                f'{indentation}                "method": "{method_name}"',
-                f"{indentation}            }}",
-                f"{indentation}        }}",
-                f"{indentation}",
             ]
         )
 

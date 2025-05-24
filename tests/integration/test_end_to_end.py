@@ -39,8 +39,8 @@ service SimpleService {
             # Add the proto file
             project.add_proto_file("simple.proto", proto_content)
 
-            # Run the plugin with factory mode for test compatibility
-            result = project.run_plugin(["simple.proto"], plugin_options="output_style=factory")
+            # Run the plugin
+            result = project.run_plugin(["simple.proto"])
 
             # Check that the command succeeded
             assert result.returncode == 0, f"Plugin failed: {result.stderr}"
@@ -53,11 +53,12 @@ service SimpleService {
             generated_code = project.read_generated_file("simple_pb2_mcp.py")
 
             # Basic content checks
-            assert "def create_simpleservice_server()" in generated_code
+            assert 'mcp = FastMCP("MCP Server from Proto")' in generated_code
             assert "FastMCP" in generated_code
             assert "def do_something(" in generated_code
             assert "name: str" in generated_code
             assert "value: int" in generated_code
+            assert "if __name__ == '__main__':" in generated_code
 
             # Validate that it's syntactically correct Python
             assert_valid_python_code(generated_code)
@@ -231,8 +232,8 @@ service Service2 {
             # Add the proto file
             project.add_proto_file("multi.proto", proto_content)
 
-            # Run the plugin with factory mode for test compatibility
-            result = project.run_plugin(["multi.proto"], plugin_options="output_style=factory")
+            # Run the plugin
+            result = project.run_plugin(["multi.proto"])
 
             # Check that the command succeeded
             assert result.returncode == 0, f"Plugin failed: {result.stderr}"
@@ -244,11 +245,11 @@ service Service2 {
             # Read and validate the generated code
             generated_code = project.read_generated_file("multi_pb2_mcp.py")
 
-            # Check for both services
-            assert "def create_service1_server()" in generated_code
-            assert "def create_service2_server()" in generated_code
+            # Check for both services (one global MCP instance with all methods)
+            assert 'mcp = FastMCP("MCP Server from Proto")' in generated_code
             assert "def method1(" in generated_code
             assert "def method2(" in generated_code
+            assert "if __name__ == '__main__':" in generated_code
 
             # Validate that it's syntactically correct Python
             assert_valid_python_code(generated_code)
