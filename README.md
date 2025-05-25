@@ -38,17 +38,19 @@ pip install -e .
 mcp-vibe --help
 ```
 
-Add the `mcp-vibe` server to your mcp servers:
+Add the `mcp-vibe` server to your Claude Desktop MCP configuration (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "vibe": {
-      "command": "mcp-vibe"
+      "command": "/Users/YOUR_USERNAME/Projects/protoc-gen-py-mcp/examples/mcp_vibe_example/.venv/bin/mcp-vibe"
     }
   }
 }
 ```
+
+**✅ VERIFIED**: This example has been tested and confirmed working with Claude Desktop! You can ask Claude to "set the vibe to happy" or "what's the current vibe?" and it will interact with the gRPC service.
 
 and run a client with above mcp server attached (eg. claude desktop)
 

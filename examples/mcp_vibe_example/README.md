@@ -41,17 +41,21 @@ mcp-vibe --port 8080
 
 #### Claude Desktop
 
-Add to your Claude Desktop MCP settings:
+Add to your Claude Desktop MCP settings file (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
 
 ```json
 {
   "mcpServers": {
     "vibe": {
-      "command": "mcp-vibe"
+      "command": "/Users/YOUR_USERNAME/Projects/protoc-gen-py-mcp/examples/mcp_vibe_example/.venv/bin/mcp-vibe"
     }
   }
 }
 ```
+
+**Note**: Replace `YOUR_USERNAME` with your actual username, or install globally with `pip install -e .` to use just `"command": "mcp-vibe"`
+
+**✅ VERIFIED WORKING**: This configuration has been tested and confirmed working with Claude Desktop!
 
 #### Other MCP Clients
 
