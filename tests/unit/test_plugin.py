@@ -16,8 +16,8 @@ class TestMcpPlugin:
 
     def test_plugin_initialization(self):
         """Test that the plugin initializes correctly."""
-        assert self.plugin.parameters == {}
-        assert self.plugin.debug_mode is False
+        assert self.plugin.config is not None
+        assert self.plugin.config.debug_mode is False
         assert self.plugin.message_types == {}
         assert self.plugin.enum_types == {}
         assert self.plugin.file_packages == {}
@@ -26,22 +26,23 @@ class TestMcpPlugin:
         """Test parameter parsing functionality."""
         # Test empty parameters
         self.plugin.parse_parameters("")
-        assert self.plugin.parameters == {}
+        assert self.plugin.config.debug_mode is False
+        assert self.plugin.debug_mode is False
 
         # Test single parameter
         self.plugin.parse_parameters("debug=true")
-        assert self.plugin.parameters["debug"] == "true"
+        assert self.plugin.config.debug_mode is True
         assert self.plugin.debug_mode is True
 
-        # Test multiple parameters
-        self.plugin.parse_parameters("debug=false,output_format=json")
-        assert self.plugin.parameters["debug"] == "false"
-        assert self.plugin.parameters["output_format"] == "json"
+        # Test multiple parameters (note: output_format is not a recognized parameter)
+        self.plugin.parse_parameters("debug=false,async=true")
         assert self.plugin.debug_mode is False
+        assert self.plugin.config.async_mode is True
 
-        # Test boolean flags
-        self.plugin.parse_parameters("verbose")
-        assert self.plugin.parameters["verbose"] == "true"
+        # Test boolean flags (note: verbose is handled as debug level)
+        self.plugin.parse_parameters("debug=verbose")
+        assert self.plugin.debug_mode is True
+        assert self.plugin.debug_level == "verbose"
 
     def test_scalar_python_type_mapping(self):
         """Test mapping of scalar protobuf types to Python types."""
@@ -247,134 +248,134 @@ class TestMcpPluginConfiguration:
     def test_output_suffix_configuration(self):
         """Test output suffix configuration."""
         # Test default
-        assert self.plugin._get_output_suffix() == "_pb2_mcp.py"
+        assert self.plugin.config.output_suffix == "_pb2_mcp.py"
 
         # Test custom suffix
         self.plugin.parse_parameters("output_suffix=_custom.py")
-        assert self.plugin._get_output_suffix() == "_custom.py"
+        assert self.plugin.config.output_suffix == "_custom.py"
 
     def test_server_name_pattern_configuration(self):
         """Test server name pattern configuration."""
         # Test default
-        assert self.plugin._get_server_name_pattern() == "{service}"
+        assert self.plugin.config.server_name_pattern == "{service}"
 
         # Test custom pattern
         self.plugin.parse_parameters("server_name_pattern=My{service}Server")
-        assert self.plugin._get_server_name_pattern() == "My{service}Server"
+        assert self.plugin.config.server_name_pattern == "My{service}Server"
 
     def test_function_name_pattern_configuration(self):
         """Test function name pattern configuration."""
         # Test default
-        assert self.plugin._get_function_name_pattern() == "create_{service}_server"
+        assert self.plugin.config.function_name_pattern == "create_{service}_server"
 
         # Test custom pattern
         self.plugin.parse_parameters("function_name_pattern=make_{service}_handler")
-        assert self.plugin._get_function_name_pattern() == "make_{service}_handler"
+        assert self.plugin.config.function_name_pattern == "make_{service}_handler"
 
     def test_tool_name_case_configuration(self):
         """Test tool name case configuration."""
         # Test default
-        assert self.plugin._get_tool_name_case() == "snake"
+        assert self.plugin.config.tool_name_case == "snake"
 
         # Test different cases
         self.plugin.parse_parameters("tool_name_case=camel")
-        assert self.plugin._get_tool_name_case() == "camel"
+        assert self.plugin.config.tool_name_case == "camel"
 
         self.plugin.parse_parameters("tool_name_case=pascal")
-        assert self.plugin._get_tool_name_case() == "pascal"
+        assert self.plugin.config.tool_name_case == "pascal"
 
         self.plugin.parse_parameters("tool_name_case=kebab")
-        assert self.plugin._get_tool_name_case() == "kebab"
+        assert self.plugin.config.tool_name_case == "kebab"
 
     def test_include_comments_configuration(self):
         """Test include comments configuration."""
         # Test default (true)
-        assert self.plugin._include_comments() is True
+        assert self.plugin.config.include_comments is True
 
         # Test disabled
         self.plugin.parse_parameters("include_comments=false")
-        assert self.plugin._include_comments() is False
+        assert self.plugin.config.include_comments is False
 
         # Test enabled explicitly
         self.plugin.parse_parameters("include_comments=true")
-        assert self.plugin._include_comments() is True
+        assert self.plugin.config.include_comments is True
 
     def test_error_format_configuration(self):
         """Test error format configuration."""
         # Test default
-        assert self.plugin._get_error_format() == "standard"
+        assert self.plugin.config.error_format == "standard"
 
         # Test different formats
         self.plugin.parse_parameters("error_format=simple")
-        assert self.plugin._get_error_format() == "simple"
+        assert self.plugin.config.error_format == "simple"
 
         self.plugin.parse_parameters("error_format=detailed")
-        assert self.plugin._get_error_format() == "detailed"
+        assert self.plugin.config.error_format == "detailed"
 
     def test_stream_mode_configuration(self):
         """Test stream mode configuration."""
         # Test default
-        assert self.plugin._get_stream_mode() == "collect"
+        assert self.plugin.config.stream_mode == "collect"
 
         # Test different modes
         self.plugin.parse_parameters("stream_mode=skip")
-        assert self.plugin._get_stream_mode() == "skip"
+        assert self.plugin.config.stream_mode == "skip"
 
         self.plugin.parse_parameters("stream_mode=warn")
-        assert self.plugin._get_stream_mode() == "warn"
+        assert self.plugin.config.stream_mode == "warn"
 
     def test_request_interceptor_configuration(self):
         """Test request interceptor configuration."""
         # Test default (false)
-        assert self.plugin._use_request_interceptor() is False
+        assert self.plugin.config.use_request_interceptor is False
 
         # Test enabled
         self.plugin.parse_parameters("request_interceptor=true")
-        assert self.plugin._use_request_interceptor() is True
+        assert self.plugin.config.use_request_interceptor is True
 
         self.plugin.parse_parameters("request_interceptor=1")
-        assert self.plugin._use_request_interceptor() is True
+        assert self.plugin.config.use_request_interceptor is True
 
         self.plugin.parse_parameters("request_interceptor=yes")
-        assert self.plugin._use_request_interceptor() is True
+        assert self.plugin.config.use_request_interceptor is True
 
     def test_show_generated_code_configuration(self):
         """Test show generated code configuration."""
         # Test default (false)
-        assert self.plugin._show_generated_code() is False
+        assert self.plugin.config.show_generated_code is False
 
         # Test enabled
         self.plugin.parse_parameters("show_generated=true")
-        assert self.plugin._show_generated_code() is True
+        assert self.plugin.config.show_generated_code is True
 
     def test_show_type_details_configuration(self):
         """Test show type details configuration."""
         # Test default (false)
-        assert self.plugin._show_type_details() is False
+        assert self.plugin.config.show_type_details is False
 
         # Test enabled
         self.plugin.parse_parameters("show_types=true")
-        assert self.plugin._show_type_details() is True
+        assert self.plugin.config.show_type_details is True
 
     def test_should_log_level(self):
         """Test log level checking."""
         # Test with basic level
         self.plugin.parse_parameters("debug=basic")
-        assert self.plugin._should_log_level("basic") is True
-        assert self.plugin._should_log_level("verbose") is False
-        assert self.plugin._should_log_level("trace") is False
+        assert self.plugin.config_manager.should_log_level("basic") is True
+        assert self.plugin.config_manager.should_log_level("verbose") is False
+        assert self.plugin.config_manager.should_log_level("trace") is False
 
         # Test with verbose level
         self.plugin.parse_parameters("debug=verbose")
-        assert self.plugin._should_log_level("basic") is True
-        assert self.plugin._should_log_level("verbose") is True
-        assert self.plugin._should_log_level("trace") is False
+        assert self.plugin.config_manager.should_log_level("basic") is True
+        assert self.plugin.config_manager.should_log_level("verbose") is True
+        assert self.plugin.config_manager.should_log_level("trace") is False
 
         # Test with trace level
         self.plugin.parse_parameters("debug=trace")
-        assert self.plugin._should_log_level("basic") is True
-        assert self.plugin._should_log_level("verbose") is True
-        assert self.plugin._should_log_level("trace") is True
+        assert self.plugin.config_manager.should_log_level("basic") is True
+        assert self.plugin.config_manager.should_log_level("verbose") is True
+        assert self.plugin.config_manager.should_log_level("trace") is True
 
     def test_create_code_generation_options(self):
         """Test code generation options creation."""
@@ -385,7 +386,7 @@ class TestMcpPluginConfiguration:
             "request_interceptor=true,show_generated=true"
         )
 
-        options = self.plugin._create_code_generation_options()
+        options = self.plugin.config_manager.create_code_generation_options()
 
         assert options.async_mode is True
         assert options.include_comments is False
@@ -458,48 +459,48 @@ class TestMcpPluginGrpcConfiguration:
     def test_get_grpc_target(self):
         """Test gRPC target configuration."""
         # Test default
-        assert self.plugin._get_grpc_target() is None
+        assert self.plugin.config.grpc_target is None
 
         # Test custom target
         self.plugin.parse_parameters("grpc_target=api.example.com:443")
-        assert self.plugin._get_grpc_target() == "api.example.com:443"
+        assert self.plugin.config.grpc_target == "api.example.com:443"
 
     def test_is_async_mode(self):
         """Test async mode configuration."""
         # Test default (false)
-        assert self.plugin._is_async_mode() is False
+        assert self.plugin.config.async_mode is False
 
         # Test enabled
         self.plugin.parse_parameters("async=true")
-        assert self.plugin._is_async_mode() is True
+        assert self.plugin.config.async_mode is True
 
         self.plugin.parse_parameters("async=1")
-        assert self.plugin._is_async_mode() is True
+        assert self.plugin.config.async_mode is True
 
         self.plugin.parse_parameters("async=yes")
-        assert self.plugin._is_async_mode() is True
+        assert self.plugin.config.async_mode is True
 
     def test_is_insecure_channel(self):
         """Test insecure channel configuration."""
         # Test default (false)
-        assert self.plugin._is_insecure_channel() is False
+        assert self.plugin.config.insecure_channel is False
 
         # Test enabled
         self.plugin.parse_parameters("insecure=true")
-        assert self.plugin._is_insecure_channel() is True
+        assert self.plugin.config.insecure_channel is True
 
     def test_get_grpc_timeout(self):
         """Test gRPC timeout configuration."""
         # Test default
-        assert self.plugin._get_grpc_timeout() == 30
+        assert self.plugin.config.grpc_timeout == 30
 
         # Test custom timeout
         self.plugin.parse_parameters("timeout=60")
-        assert self.plugin._get_grpc_timeout() == 60
+        assert self.plugin.config.grpc_timeout == 60
 
         # Test invalid timeout (should default to 30)
         self.plugin.parse_parameters("timeout=invalid")
-        assert self.plugin._get_grpc_timeout() == 30
+        assert self.plugin.config.grpc_timeout == 30
 
 
 class TestMcpPluginUtilityMethods:

@@ -188,28 +188,28 @@ class TestMcpPluginErrorHandling:
         """Test handling of empty and whitespace parameter strings."""
         # Empty string
         self.plugin.parse_parameters("")
-        assert self.plugin.parameters == {}
+        assert self.plugin.config.debug_mode is False  # Default config
 
         # Whitespace only
         self.plugin.parse_parameters("   ")
-        # May contain empty entries, but should not crash
-        assert isinstance(self.plugin.parameters, dict)
+        # Should not crash and maintain default config
+        assert self.plugin.config.debug_mode is False
 
     def test_malformed_parameter_strings(self):
         """Test handling of malformed parameter strings."""
-        # Parameter with multiple equals signs
+        # Parameter with multiple equals signs (not a recognized param, should not crash)
         self.plugin.parse_parameters("param=value=extra")
-        assert self.plugin.parameters["param"] == "value=extra"
+        assert self.plugin.config is not None  # Should not crash
 
-        # Parameter with no value
+        # Parameter with no value (debug= should be false, timeout=30 should work)
         self.plugin.parse_parameters("debug=,timeout=30")
-        assert self.plugin.parameters["debug"] == ""
-        assert self.plugin.parameters["timeout"] == "30"
+        assert self.plugin.config.debug_mode is False  # Empty debug value
+        assert self.plugin.config.grpc_timeout == 30
 
-        # Mixed valid and invalid parameters
-        self.plugin.parse_parameters("valid=true,=invalid,another=good")
-        assert self.plugin.parameters.get("valid") == "true"
-        assert self.plugin.parameters.get("another") == "good"
+        # Mixed valid and invalid parameters (only valid ones should take effect)
+        self.plugin.parse_parameters("debug=true,=invalid,timeout=60")
+        assert self.plugin.config.debug_mode is True
+        assert self.plugin.config.grpc_timeout == 60
 
     def test_field_analysis_with_oneof(self):
         """Test field analysis with oneof fields."""
@@ -251,19 +251,19 @@ class TestMcpPluginErrorHandling:
         """Test gRPC timeout validation with edge cases."""
         # Very large timeout
         self.plugin.parse_parameters("timeout=999999")
-        assert self.plugin._get_grpc_timeout() == 999999
+        assert self.plugin.config.grpc_timeout == 999999
 
-        # Zero timeout (should be invalid but _get_grpc_timeout returns raw value)
+        # Zero timeout (should be accepted)
         self.plugin.parse_parameters("timeout=0")
-        assert self.plugin._get_grpc_timeout() == 0
+        assert self.plugin.config.grpc_timeout == 0
 
-        # Negative timeout (returns raw value, validation happens elsewhere)
+        # Negative timeout (raw value is accepted)
         self.plugin.parse_parameters("timeout=-10")
-        assert self.plugin._get_grpc_timeout() == -10
+        assert self.plugin.config.grpc_timeout == -10  # Raw value, validation elsewhere
 
         # Non-numeric timeout (should default to 30)
         self.plugin.parse_parameters("timeout=invalid")
-        assert self.plugin._get_grpc_timeout() == 30
+        assert self.plugin.config.grpc_timeout == 30
 
     def test_proto_file_with_complex_package_names(self):
         """Test handling proto files with complex package names."""

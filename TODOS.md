@@ -20,7 +20,7 @@ The plugin successfully:
 
 ### High Priority - Enhancement & Polish
 - [ ] **Troubleshooting guide** - Common issues, debugging tips, FAQ
-- [ ] **Split large plugin.py file** - Break into focused modules for better maintainability
+- [ ] **Split large plugin.py file** - **🚧 IN PROGRESS: Phase 2 Complete (12% reduction achieved)**
 
 ### Medium Priority - Advanced Features
 - [ ] **Code generation optimization** - Performance improvements for large proto files
@@ -39,117 +39,107 @@ The plugin successfully:
 
 ## Detailed Implementation Plans
 
-### 📋 Plan 1: Split Large plugin.py File (1366 lines → ~5 modules)
+### 📋 Plan 1: Split Large plugin.py File (1366 → 1137 lines, ~200 target)
 
-**Current Status**: Single file contains all functionality making it hard to maintain and test
+**✅ Phase 1 Complete**: Utilities module extracted (`core/utils.py` - 115 lines)
+**✅ Phase 2 Complete**: Configuration module extracted (`core/config.py` - 188 lines)
 
-**✅ Recent Progress**: Validation module already extracted (`validation.py`), dataclasses created
+**Current Status**: 
+- **Total Progress**: 1,366 → 1,137 lines (229 lines extracted, 17% reduction)
+- **Quality**: All 101 tests passing, all quality checks passing
+- **Architecture**: Type-safe configuration management with dataclasses
+- **Next Target**: Extract type system (~250 lines) and code generation (~493 lines)
 
-**Updated Target Structure** (based on current code analysis):
+**Re-evaluated Target Structure** (based on current code analysis):
 ```
 src/protoc_gen_py_mcp/
 ├── __init__.py
-├── plugin.py              # Main orchestrator (~150 lines)
+├── plugin.py              # Main orchestrator (~120 lines)
 ├── cli/                   # ✅ Already exists
 │   ├── __init__.py
 │   └── cli.py
 ├── validation.py          # ✅ Already extracted (97% coverage)
 ├── core/
 │   ├── __init__.py
-│   ├── config.py          # Parameter management (~300 lines)
-│   ├── type_analyzer.py   # Type system analysis (~350 lines)
-│   ├── code_generator.py  # Code generation (~550 lines)
-│   └── utils.py           # Shared utilities (~150 lines)
+│   ├── config.py          # Parameter management (~200 lines)
+│   ├── type_analyzer.py   # Type system analysis (~400 lines)
+│   ├── code_generator.py  # Code generation (~480 lines)
+│   └── utils.py           # ✅ Already extracted (115 lines)
 ```
 
-**Implementation Steps** (updated based on current state):
+**Re-evaluated Implementation Steps** (updated based on current state):
 
-1. **Phase 1: Extract Configuration Module** 
-   ```python
-   # core/config.py
-   @dataclass
-   class PluginConfig:
-       # Move all 20+ parameter getters into typed dataclass
-       debug_mode: bool = False
-       debug_level: str = "none"
-       grpc_target: Optional[str] = None
-       async_mode: bool = False
-       tool_name_case: str = "snake"
-       stream_mode: str = "collect"
-       # ... all other parameters
-   
-   class ConfigManager:
-       def parse_parameters(self, parameter_string: str) -> PluginConfig:
-       def create_code_generation_options(self, config: PluginConfig) -> CodeGenerationOptions:
-   ```
-   **Extract from plugin.py:**
-   - Lines 173-220: `parse_parameters()` 
-   - Lines 109-162: All parameter getters (`_get_*`, `_is_*`, `_show_*`, `_include_*`)
-   - Lines 149-162: `_create_code_generation_options()`
-   - **Benefits**: ~150 lines moved, cleaner parameter management
+1. **✅ Phase 1: Extract Utilities Module - COMPLETED**
+   - Created `core/utils.py` with NamingUtils, ErrorUtils, ProtoUtils
+   - Reduced plugin.py from 1366 to 1291 lines (-75 lines)
+   - All tests passing, full backward compatibility maintained
 
-2. **Phase 2: Extract Type Analysis Module**
+2. **✅ Phase 2: Extract Configuration Module - COMPLETED**
+   - Created `core/config.py` with PluginConfig, ConfigManager, CodeGenerationOptions
+   - Reduced plugin.py from 1291 to 1137 lines (-154 lines, 12% reduction)
+   - Modernized configuration management with type-safe dataclasses
+   - All tests updated and passing (101/101), full backward compatibility maintained
+   - All quality checks passing (linting, type checking, formatting)
+
+3. **Phase 3: Extract Type System Module** (~250 lines)
    ```python
-   # core/type_analyzer.py  
+   # core/type_analyzer.py
    class TypeAnalyzer:
-       def __init__(self, config: PluginConfig):
-           self.message_types: Dict[str, DescriptorProto] = {}
-           self.enum_types: Dict[str, EnumDescriptorProto] = {}
-           self.source_comments: Dict[str, Dict] = {}
-       
-       def build_type_index(self, request: CodeGeneratorRequest) -> None:
-       def analyze_message_fields(self, message_type_name: str) -> List[FieldInfo]:
        def get_python_type(self, field: FieldDescriptorProto) -> str:
+       def get_scalar_python_type(self, field_type: int) -> str:
+       def is_map_field(self, field: FieldDescriptorProto) -> bool:
+       def get_map_types(self, field: FieldDescriptorProto) -> tuple:
+       def get_well_known_type(self, type_name: str) -> str:
+       def analyze_message_fields(self, message_type_name: str) -> List[FieldInfo]:
    ```
    **Extract from plugin.py:**
-   - Lines 320-350: `_build_type_index()` 
-   - Lines 351-395: Comment extraction methods
-   - Lines 396-457: Message/enum indexing (`_index_messages`, `_index_enums`)
-   - Lines 458-622: Type mapping (`_get_python_type`, `_get_scalar_python_type`, `_is_map_field`, etc.)
-   - Lines 623-707: `_analyze_message_fields()`
-   - **Benefits**: ~350 lines moved, focused type system logic
+   - Lines 247-496: All type analysis and mapping methods  
+   - Core type system logic: scalar types, maps, well-known types, field analysis
+   - **Benefits**: ~250 lines moved, cleaner type system separation
 
-3. **Phase 3: Extract Code Generation Module**
+4. **Phase 4: Extract Code Generation Module** (~493 lines)
    ```python
    # core/code_generator.py
    class CodeGenerator:
-       def __init__(self, type_analyzer: TypeAnalyzer):
-           self.type_analyzer = type_analyzer
-       
-       def generate_file_content(self, proto_file: FileDescriptorProto, options: CodeGenerationOptions) -> str:
-       def generate_service(self, service: ServiceDescriptorProto, ...) -> List[str]:
-       def generate_method_tool(self, context: MethodGenerationContext, options: CodeGenerationOptions) -> List[str]:
+       def generate_file_content(self, proto_file, services) -> str:
+       def generate_header(self) -> List[str]:
+       def generate_imports(self, proto_file) -> List[str]:
+       def generate_service(self, service, proto_file) -> List[str]:
+       def generate_method_tool(self, context, options) -> None:
+       def generate_grpc_call(self, method, service) -> List[str]:
+       def handle_streaming_method(self, method) -> str:
    ```
    **Extract from plugin.py:**
-   - Lines 788-814: `generate_file_content()`
-   - Lines 815-888: Header/import generation (`_generate_header`, `_generate_imports`, `_generate_main_block`)
-   - Lines 890-944: Service generation (`_generate_service`, `_generate_service_impl`)
-   - Lines 945-1108: Method generation (`_generate_method_tool`, `_generate_grpc_call`)
-   - Lines 1109-1281: Streaming support (`_handle_streaming_method`, `_generate_streaming_tool_adapted`)
-   - **Benefits**: ~550 lines moved, separated generation concerns
+   - Lines 577-1070: All code generation methods
+   - Core generation logic: headers, imports, services, methods, streaming
+   - **Benefits**: ~493 lines moved, focused code generation responsibility
 
-4. **Phase 4: Extract Utilities Module**
-   ```python
-   # core/utils.py
-   class NamingUtils:
-       @staticmethod
-       def camel_to_snake(name: str) -> str:
-       @staticmethod 
-       def convert_tool_name(method_name: str, case_type: str) -> str:
-   
-   class ErrorUtils:
-       @staticmethod
-       def create_detailed_error_context(file_name: str, exception: Exception, debug_mode: bool) -> str:
-   ```
-   **Extract from plugin.py:**
-   - Lines 245-299: `_create_detailed_error_context()`
-   - Lines 1282-1308: Naming utilities (`_camel_to_snake`, `_convert_tool_name`)
-   - Lines 163-172: `_has_optional_fields()` 
-   - **Benefits**: ~150 lines moved, reusable utilities
+**Final Result**: plugin.py reduced to ~200 lines (orchestration only)
 
-5. **Phase 5: Simplify Main Plugin**
-   ```python
-   # plugin.py (simplified orchestrator)
+**Updated Target Structure** (Post-Phase 2):
+```
+src/protoc_gen_py_mcp/
+├── __init__.py
+├── plugin.py              # Main orchestrator (~200 lines after Phase 4)
+├── cli/                   # ✅ Already exists
+│   ├── __init__.py
+│   └── cli.py
+├── validation.py          # ✅ Already extracted (97% coverage)
+├── core/
+│   ├── __init__.py
+│   ├── config.py          # ✅ Parameter management (188 lines)
+│   ├── type_analyzer.py   # Phase 3: Type system analysis (~250 lines)
+│   ├── code_generator.py  # Phase 4: Code generation (~493 lines)
+│   └── utils.py           # ✅ Already extracted (115 lines)
+```
+
+**Expected Final Results**:
+- **Total extraction**: ~900+ lines from plugin.py
+- **Final plugin.py**: ~200 lines (83% reduction from original 1,366 lines)
+- **Modular architecture**: 6 focused modules with clear responsibilities
+- **Maintainability**: Much easier to understand, test, and extend individual components
+
+5. **Future Phase 3: Extract Type System** (Ready to implement)
    class McpPlugin:
        def __init__(self):
            self.config_manager = ConfigManager()
@@ -175,12 +165,13 @@ src/protoc_gen_py_mcp/
            # Create response file
    ```
    **Remaining in plugin.py:**
-   - Lines 65-77: Initialization and core state
-   - Lines 78-101: Logging methods (keep for cross-cutting concerns)
-   - Lines 709-747: Main `generate()` orchestration
-   - Lines 748-787: `handle_file()` error handling
-   - Lines 1311-1364: `main()` entry point
-   - **Result**: ~150 lines, focused on orchestration
+   - Lines 66-78: Initialization and core state
+   - Lines 79-108: Logging methods (keep for cross-cutting concerns)
+   - Lines 652-690: Main `generate()` orchestration
+   - Lines 691-730: `handle_file()` error handling
+   - Lines 1225-1233: Name conversion (delegated to utils)
+   - Lines 1236-1291: `main()` entry point
+   - **Result**: ~120 lines, focused on orchestration
 
 **Benefits of This Approach**:
 - ✅ **Leverages existing work**: Builds on validation.py extraction and dataclasses

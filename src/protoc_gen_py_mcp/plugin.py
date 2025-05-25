@@ -7,8 +7,8 @@ from typing import Any, Dict, List, Optional, Sequence, TypedDict
 from google.protobuf import descriptor_pb2
 from google.protobuf.compiler import plugin_pb2 as plugin
 
+from .core.config import CodeGenerationOptions, ConfigManager, PluginConfig
 from .core.utils import ErrorUtils, NamingUtils, ProtoUtils
-from .validation import default_validator
 
 
 class FieldInfo(TypedDict, total=False):
@@ -35,21 +35,6 @@ class MethodGenerationContext:
     indentation: str = ""
 
 
-@dataclass
-class CodeGenerationOptions:
-    """Options for code generation behavior."""
-
-    async_mode: bool
-    include_comments: bool
-    tool_name_case: str
-    grpc_target: Optional[str]
-    insecure_channel: bool
-    grpc_timeout: int
-    stream_mode: str
-    use_request_interceptor: bool
-    show_generated_code: bool
-
-
 class McpPlugin:
     """
     Protoc plugin for generating Python MCP server code from Protocol Buffer service definitions.
@@ -65,8 +50,12 @@ class McpPlugin:
 
     def __init__(self) -> None:
         """Initialize the MCP plugin."""
-        self.parameters: Dict[str, str] = {}
-        self.debug_mode: bool = False
+        self.config_manager = ConfigManager()
+        self.config: PluginConfig = PluginConfig()
+
+        # Set compatibility attributes
+        self.debug_mode = self.config.debug_mode
+        self.debug_level = self.config.debug_level
 
         # Type indexing for all proto files
         self.message_types: Dict[str, descriptor_pb2.DescriptorProto] = {}
@@ -78,7 +67,7 @@ class McpPlugin:
 
     def log_debug(self, message: str, level: str = "basic") -> None:
         """Log debug message to stderr if debug mode is enabled."""
-        if self.debug_mode and self._should_log_level(level):
+        if self.config.debug_mode and self.config_manager.should_log_level(level):
             sys.stderr.write(f"[protoc-gen-py-mcp] {message}\n")
             sys.stderr.flush()
 
@@ -100,165 +89,22 @@ class McpPlugin:
         sys.stderr.write(f"[protoc-gen-py-mcp WARNING] {message}\n")
         sys.stderr.flush()
 
-    def _should_log_level(self, level: str) -> bool:
-        """Check if we should log at the given level."""
-        level_hierarchy = {"basic": 1, "verbose": 2, "trace": 3}
-        current_level = level_hierarchy.get(self.debug_level, 0)
-        required_level = level_hierarchy.get(level, 1)
-        return current_level >= required_level
-
-    def _show_generated_code(self) -> bool:
-        """Check if generated code should be shown in debug output."""
-        return self.parameters.get("show_generated", "").lower() in ("true", "1", "yes")
-
-    def _show_type_details(self) -> bool:
-        """Check if detailed type information should be shown."""
-        return self.parameters.get("show_types", "").lower() in ("true", "1", "yes")
-
-    def _get_output_suffix(self) -> str:
-        """Get custom output file suffix."""
-        return self.parameters.get("output_suffix", "_pb2_mcp.py")
-
-    def _get_server_name_pattern(self) -> str:
-        """Get server name pattern."""
-        return self.parameters.get("server_name_pattern", "{service}")
-
-    def _get_function_name_pattern(self) -> str:
-        """Get function name pattern."""
-        return self.parameters.get("function_name_pattern", "create_{service}_server")
-
-    def _get_tool_name_case(self) -> str:
-        """Get tool name case conversion."""
-        return self.parameters.get("tool_name_case", "snake")
-
-    def _include_comments(self) -> bool:
-        """Check if proto comments should be included."""
-        return self.parameters.get("include_comments", "true").lower() in ("true", "1", "yes")
-
-    def _get_error_format(self) -> str:
-        """Get error response format."""
-        return self.parameters.get("error_format", "standard")
-
-    def _get_stream_mode(self) -> str:
-        """Get streaming RPC handling mode."""
-        return self.parameters.get("stream_mode", "collect")
-
-    def _use_request_interceptor(self) -> bool:
-        """Check if request interceptor pattern should be generated."""
-        return self.parameters.get("request_interceptor", "").lower() in ("true", "1", "yes")
-
-    def _create_code_generation_options(self) -> CodeGenerationOptions:
-        """Create CodeGenerationOptions from current plugin parameters."""
-        return CodeGenerationOptions(
-            async_mode=self._is_async_mode(),
-            include_comments=self._include_comments(),
-            tool_name_case=self._get_tool_name_case(),
-            grpc_target=self._get_grpc_target(),
-            insecure_channel=self._is_insecure_channel(),
-            grpc_timeout=self._get_grpc_timeout(),
-            stream_mode=self._get_stream_mode(),
-            use_request_interceptor=self._use_request_interceptor(),
-            show_generated_code=self._show_generated_code(),
-        )
-
     def _has_optional_fields(self, proto_file: descriptor_pb2.FileDescriptorProto) -> bool:
         """Check if proto file has any optional fields that would need Optional typing."""
         return ProtoUtils.has_optional_fields(proto_file, self._analyze_message_fields)
 
     def parse_parameters(self, parameter_string: str) -> None:
-        """
-        Parse plugin parameters from the protoc parameter string.
+        """Parse plugin parameters using the configuration manager."""
+        self.config = self.config_manager.parse_parameters(parameter_string or "")
+        self.debug_mode = self.config.debug_mode
+        self.debug_level = self.config.debug_level
 
-        Parameters are in the format: key1=value1,key2=value2
-        Special parameters:
-        - debug: Enable debug logging (basic, verbose, trace)
-        - grpc_target: gRPC server address (e.g., localhost:50051)
-        - async: Generate async tool functions
-        - insecure: Use insecure gRPC channel (default: false)
-        - timeout: gRPC call timeout in seconds (default: 30)
-        - show_generated: Show generated code content in debug output
-        - show_types: Show detailed type information in debug output
-        - output_suffix: Custom output file suffix (default: _pb2_mcp.py)
-        - server_name_pattern: Custom server name pattern (default: {service}Service)
-        - function_name_pattern: Custom function name pattern (default: create_{service}_server)
-        - tool_name_case: Case for tool names (snake, camel, pascal, kebab)
-        - include_comments: Include proto comments in generated code (default: true)
-        - error_format: Error response format (standard, simple, detailed)
-        - stream_mode: How to handle streaming RPCs (collect, skip, warn)
-        - request_interceptor: Generate request interceptor pattern for custom auth/logging
-        """
-        if not parameter_string:
-            return
-
-        for param in parameter_string.split(","):
-            if "=" in param:
-                key, value = param.split("=", 1)
-                self.parameters[key.strip()] = value.strip()
-            else:
-                # Boolean flags
-                self.parameters[param.strip()] = "true"
-
-        # Handle special parameters
-        debug_value = self.parameters.get("debug", "").lower()
-        self.debug_mode = debug_value in ("true", "1", "yes", "basic", "verbose", "trace")
-        self.debug_level = (
-            debug_value
-            if debug_value in ("basic", "verbose", "trace")
-            else ("basic" if self.debug_mode else "none")
-        )
-
-        self.log_debug(f"Parsed parameters: {self.parameters}")
+        self.log_debug(f"Parsed configuration: {self.config}")
         self.log_debug(f"Debug level: {self.debug_level}")
-
-        # Validate parameters
-        self._validate_parameters()
-
-    def _validate_parameters(self) -> None:
-        """
-        Validate all parameters using declarative rules.
-
-        This method uses the validation module to perform comprehensive
-        validation with clear error messages and suggestions.
-        """
-        # Use the declarative validator
-        result = default_validator.validate(self.parameters)
-
-        # Log all errors and warnings
-        for error in result.errors:
-            self.log_error(error)
-
-        for warning in result.warnings:
-            self.log_warning(warning)
-
-        # If there are errors, provide helpful guidance
-        if result.errors:
-            self.log_error(
-                "Parameter validation failed. See PLUGIN_PARAMETERS.md for complete documentation."
-            )
-            self.log_error('Use --py-mcp_opt="param1=value1,param2=value2" to set parameters.')
 
     def _create_detailed_error_context(self, file_name: str, exception: Exception) -> str:
         """Create detailed error message with context and troubleshooting tips."""
         return ErrorUtils.create_detailed_error_context(file_name, exception, self.debug_mode)
-
-    def _get_grpc_target(self) -> Optional[str]:
-        """Get gRPC target address from parameters."""
-        return self.parameters.get("grpc_target")
-
-    def _is_async_mode(self) -> bool:
-        """Check if async mode is enabled."""
-        return self.parameters.get("async", "").lower() in ("true", "1", "yes")
-
-    def _is_insecure_channel(self) -> bool:
-        """Check if insecure gRPC channel should be used."""
-        return self.parameters.get("insecure", "").lower() in ("true", "1", "yes")
-
-    def _get_grpc_timeout(self) -> int:
-        """Get gRPC timeout in seconds."""
-        try:
-            return int(self.parameters.get("timeout", "30"))
-        except ValueError:
-            return 30
 
     def _build_type_index(self, request: plugin.CodeGeneratorRequest) -> None:
         """
@@ -282,7 +128,7 @@ class McpPlugin:
             # Index enum types
             self._index_enums(proto_file.enum_type, proto_file.package)
 
-            if self._show_type_details():
+            if self.config.show_type_details:
                 self.log_verbose(
                     f"File {proto_file.name}: {len(proto_file.message_type)} messages, {len(proto_file.enum_type)} enums"
                 )
@@ -644,7 +490,7 @@ class McpPlugin:
             fields.append(field_info)
             self.log_debug(f"Analyzed field {field.name}: {field_info['type']}")
 
-            if self._show_type_details():
+            if self.config.show_type_details:
                 self.log_verbose(f"  Field details: {field_info}")
 
         return fields
@@ -705,7 +551,7 @@ class McpPlugin:
                 return
 
             # Generate output filename
-            output_filename = proto_file.name.replace(".proto", self._get_output_suffix())
+            output_filename = proto_file.name.replace(".proto", self.config.output_suffix)
 
             # Generate the content
             content = self.generate_file_content(proto_file)
@@ -717,7 +563,7 @@ class McpPlugin:
 
             self.log_debug(f"Generated {len(content)} characters for {output_filename}")
 
-            if self._show_generated_code():
+            if self.config.show_generated_code:
                 self.log_verbose(f"Generated content for {output_filename}:")
                 for i, line in enumerate(content.split("\n"), 1):
                     self.log_trace(f"  {i:3d}: {line}")
@@ -773,7 +619,7 @@ class McpPlugin:
     ) -> None:
         """Generate necessary imports for the generated code."""
         # Basic imports
-        if self._is_async_mode():
+        if self.config.async_mode:
             lines.append("import asyncio")
 
         # Import typing only what's needed
@@ -805,7 +651,7 @@ class McpPlugin:
         lines.append("")
 
         # Generate default request interceptor if interceptor pattern is enabled
-        if self._use_request_interceptor():
+        if self.config.use_request_interceptor:
             lines.extend(
                 [
                     "# Default request interceptor function",
@@ -882,7 +728,7 @@ class McpPlugin:
                     method_index=method_index,
                     indentation="",
                 )
-                options = self._create_code_generation_options()
+                options = self.config_manager.create_code_generation_options()
                 self._generate_method_tool(lines, context, options)
 
     def _generate_method_tool(
@@ -1059,7 +905,7 @@ class McpPlugin:
         method_index: int,
     ) -> None:
         """Handle streaming RPC methods based on stream_mode setting."""
-        stream_mode = self._get_stream_mode()
+        stream_mode = self.config.stream_mode
         method_name = method.name
         is_client_stream = method.client_streaming
         is_server_stream = method.server_streaming
@@ -1120,7 +966,7 @@ class McpPlugin:
                 method_index=method_index,
                 indentation="    ",
             )
-            options = self._create_code_generation_options()
+            options = self.config_manager.create_code_generation_options()
             self._generate_method_tool(lines, context, options)
 
     def _generate_streaming_tool_adapted(
@@ -1168,13 +1014,13 @@ class McpPlugin:
 
         # Enhanced docstring for streaming
         stream_type = "client streaming" if is_client_stream else "server streaming"
-        if self._include_comments() and method_comment:
+        if self.config.include_comments and method_comment:
             docstring = f'    """Tool for {method_name} RPC method ({stream_type}).\n    \n    {method_comment}\n    \n    Note: This is a {stream_type} RPC adapted for MCP.\n    """'
         else:
             docstring = f'    """Tool for {method_name} RPC method ({stream_type})."""'
 
         # Generate function
-        if self._is_async_mode():
+        if self.config.async_mode:
             lines.extend(
                 [
                     "    @mcp.tool()",
@@ -1229,7 +1075,7 @@ class McpPlugin:
     def _convert_tool_name(self, method_name: str, case_type: Optional[str] = None) -> str:
         """Convert method name according to tool_name_case setting."""
         if case_type is None:
-            case_type = self._get_tool_name_case()
+            case_type = self.config.tool_name_case
         return NamingUtils.convert_tool_name(method_name, case_type)
 
 
