@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package examples.v1;
+package example.v1;
 
 option go_package = "examples/gen/example/v1;examplev1";
 

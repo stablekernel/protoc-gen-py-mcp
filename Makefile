@@ -1,5 +1,5 @@
-PROTO_SRC = protos/example.proto
-PY_OUT = .
+PROTO_SRC = examples/protos/example/v1/example.proto
+PY_OUT = examples/gen
 
 .PHONY: all proto clean run-server run-client test lint format check-format mypy coverage lint-generated check-all help
 
@@ -24,11 +24,11 @@ help:
 	@echo "  run-client     - Run the gRPC client"
 
 proto:
-	uv run python -m grpc_tools.protoc -I=. --python_out=$(PY_OUT) --grpc_python_out=$(PY_OUT) --pyi_out=$(PY_OUT) $(PROTO_SRC)
-	uv run python -m grpc_tools.protoc -I=. --py-mcp_out=$(PY_OUT) $(PROTO_SRC)
+	uv run python -m grpc_tools.protoc -I=examples/protos --python_out=$(PY_OUT) --grpc_python_out=$(PY_OUT) --pyi_out=$(PY_OUT) $(PROTO_SRC)
+	uv run python -m grpc_tools.protoc -I=examples/protos --py-mcp_out=$(PY_OUT) $(PROTO_SRC)
 
 clean:
-	find . -path "./.venv" -prune -o -type f \( -name "*_pb2.py" -o -name "*_pb2_grpc.py" -o -name "*_pb2.pyi" -o -name "*_pb2_mcp.py" \) -print | xargs rm -f
+	find examples/gen -type f \( -name "*_pb2.py" -o -name "*_pb2_grpc.py" -o -name "*_pb2.pyi" -o -name "*_pb2_mcp.py" \) -delete 2>/dev/null || true
 
 run-server:
 	uv run python grpc_server.py
@@ -63,7 +63,11 @@ coverage:
 # Lint generated code from plugin
 lint-generated: proto
 	@echo "Linting generated MCP code..."
-	uv run flake8 protos/*_pb2_mcp.py --exclude=protos/*_pb2.py,protos/*_pb2_grpc.py,protos/*_pb2.pyi || true
+	@if find examples/gen -name "*_pb2_mcp.py" | head -1 > /dev/null 2>&1; then \
+		find examples/gen -name "*_pb2_mcp.py" -exec uv run flake8 {} ';' || true; \
+	else \
+		echo "No MCP files found to lint"; \
+	fi
 	@echo "Generated code linting complete (warnings only)"
 
 # Run all quality checks
