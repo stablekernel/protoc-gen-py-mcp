@@ -1132,7 +1132,11 @@ class McpPlugin:
                 f"{indentation}    channel = grpc.insecure_channel('{grpc_target}')",
                 f"{indentation}    stub = {grpc_module}.{service_name}Stub(channel)",
                 f"{indentation}    response = stub.{method_name}(request)",
-                f"{indentation}    print(response)",
+                "",
+                f"{indentation}    # Convert protobuf response to dict for MCP",
+                f"{indentation}    from google.protobuf.json_format import MessageToDict",
+                f"{indentation}    result = MessageToDict(response)",
+                f"{indentation}    return result",
             ]
         )
 

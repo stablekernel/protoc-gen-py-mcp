@@ -360,7 +360,8 @@ service JsonService {
             # Check for direct gRPC calls
             assert "stub = json_pb2_grpc.JsonServiceStub(channel)" in mcp_code
             assert "response = stub.ConvertJson(request)" in mcp_code
-            assert "print(response)" in mcp_code  # Generated code prints response
+            assert "return result" in mcp_code  # Generated code returns response as dict
+            assert "MessageToDict(response)" in mcp_code  # Converts protobuf to dict
 
             # Check that request construction is present
             assert "request = json_pb2.JsonRequest()" in mcp_code

@@ -102,6 +102,8 @@ exclude = [
     "protos/",
     "build/",
     "dist/",
+    "src/mcp_vibe/",
+    "examples/gen/",
 ]
 
 [tool.coverage.run]
