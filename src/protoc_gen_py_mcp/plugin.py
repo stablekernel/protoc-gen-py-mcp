@@ -39,12 +39,11 @@ class CodeGenerationOptions:
     async_mode: bool
     include_comments: bool
     tool_name_case: str
-    auth_type: str
     grpc_target: Optional[str]
     insecure_channel: bool
     grpc_timeout: int
     stream_mode: str
-    auth_header: str
+    use_request_interceptor: bool
     show_generated_code: bool
 
 
@@ -157,17 +156,9 @@ class McpPlugin:
         """Get streaming RPC handling mode."""
         return self.parameters.get("stream_mode", "collect")
 
-    def _get_auth_type(self) -> str:
-        """Get authentication type."""
-        return self.parameters.get("auth_type", "none")
-
-    def _get_auth_header(self) -> str:
-        """Get authentication header name."""
-        return self.parameters.get("auth_header", "Authorization")
-
-    def _should_generate_auth_metadata(self) -> bool:
-        """Check if auth metadata should be generated."""
-        return self.parameters.get("auth_metadata", "true").lower() in ("true", "1", "yes")
+    def _use_request_interceptor(self) -> bool:
+        """Check if request interceptor pattern should be generated."""
+        return self.parameters.get("request_interceptor", "").lower() in ("true", "1", "yes")
 
     def _create_code_generation_options(self) -> CodeGenerationOptions:
         """Create CodeGenerationOptions from current plugin parameters."""
@@ -175,12 +166,11 @@ class McpPlugin:
             async_mode=self._is_async_mode(),
             include_comments=self._include_comments(),
             tool_name_case=self._get_tool_name_case(),
-            auth_type=self._get_auth_type(),
             grpc_target=self._get_grpc_target(),
             insecure_channel=self._is_insecure_channel(),
             grpc_timeout=self._get_grpc_timeout(),
             stream_mode=self._get_stream_mode(),
-            auth_header=self._get_auth_header(),
+            use_request_interceptor=self._use_request_interceptor(),
             show_generated_code=self._show_generated_code(),
         )
 
@@ -214,9 +204,7 @@ class McpPlugin:
         - include_comments: Include proto comments in generated code (default: true)
         - error_format: Error response format (standard, simple, detailed)
         - stream_mode: How to handle streaming RPCs (collect, skip, warn)
-        - auth_type: Authentication type (none, bearer, api_key, mtls, custom)
-        - auth_header: Header name for API key/bearer auth (default: Authorization)
-        - auth_metadata: Generate metadata injection for auth (default: true)
+        - request_interceptor: Generate request interceptor pattern for custom auth/logging
         """
         if not parameter_string:
             return
@@ -254,7 +242,6 @@ class McpPlugin:
             "tool_name_case": ["snake", "camel", "pascal", "kebab"],
             "error_format": ["standard", "simple", "detailed"],
             "stream_mode": ["collect", "skip", "warn"],
-            "auth_type": ["none", "bearer", "api_key", "mtls", "custom"],
             "debug": ["", "true", "1", "yes", "basic", "verbose", "trace", "false", "0", "no"],
         }
 
@@ -328,13 +315,6 @@ class McpPlugin:
                             f"Example: {param_name}=My{required_placeholder}Server",
                         )
                     )
-
-        # Validate auth_header for specific auth types
-        auth_type = self.parameters.get("auth_type", "none")
-        if auth_type in ("bearer", "api_key") and "auth_header" in self.parameters:
-            header = self.parameters["auth_header"]
-            if not header or not header.replace("-", "").replace("_", "").isalnum():
-                warnings.append(f"auth_header='{header}' may not be a valid HTTP header name")
 
         # Log all errors and warnings
         for error in errors:
@@ -969,6 +949,21 @@ class McpPlugin:
 
         lines.append("")
 
+        # Generate default request interceptor if interceptor pattern is enabled
+        if self._use_request_interceptor():
+            lines.extend(
+                [
+                    "# Default request interceptor function",
+                    "def default_request_interceptor(request, method_name, metadata):",
+                    '    """Default request interceptor - no modifications."""',
+                    "    return request, metadata",
+                    "",
+                    "# Global request interceptor - can be overridden by user",
+                    "request_interceptor = default_request_interceptor",
+                    "",
+                ]
+            )
+
     def _generate_main_block(self, lines: List[str], service_names: List[str]) -> None:
         """Generate main execution block like the target file."""
         lines.extend(
@@ -1168,12 +1163,29 @@ class McpPlugin:
             options.grpc_target or "localhost:50051"
         )  # Default target like the target file
 
-        # Generate simple direct gRPC call like the target file
+        # Generate gRPC call with request interceptor pattern
+        if options.use_request_interceptor:
+            lines.extend(
+                [
+                    f"{context.indentation}    # Apply request interceptor for auth/logging/modifications",
+                    f"{context.indentation}    request, metadata = request_interceptor(request, '{method_name}', ())",
+                    "",
+                    f"{context.indentation}    channel = grpc.insecure_channel('{grpc_target}')",
+                    f"{context.indentation}    stub = {grpc_module}.{service_name}Stub(channel)",
+                    f"{context.indentation}    response = stub.{method_name}(request, metadata=metadata)",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    f"{context.indentation}    channel = grpc.insecure_channel('{grpc_target}')",
+                    f"{context.indentation}    stub = {grpc_module}.{service_name}Stub(channel)",
+                    f"{context.indentation}    response = stub.{method_name}(request)",
+                ]
+            )
+
         lines.extend(
             [
-                f"{context.indentation}    channel = grpc.insecure_channel('{grpc_target}')",
-                f"{context.indentation}    stub = {grpc_module}.{service_name}Stub(channel)",
-                f"{context.indentation}    response = stub.{method_name}(request)",
                 "",
                 f"{context.indentation}    # Convert protobuf response to dict for MCP",
                 f"{context.indentation}    from google.protobuf.json_format import MessageToDict",
@@ -1350,54 +1362,6 @@ class McpPlugin:
                     "        # Send single request and collect all streaming responses",
                     "        # Return list of responses",
                     "        return {'error': 'Server streaming not yet implemented'}",
-                ]
-            )
-
-        lines.append("")
-
-    def _generate_auth_metadata(self, lines: List[str], auth_type: str, indentation: str) -> None:
-        """Generate authentication metadata for gRPC calls."""
-        auth_header = self._get_auth_header()
-
-        if auth_type == "bearer":
-            lines.extend(
-                [
-                    f"{indentation}        # Bearer token authentication",
-                    f"{indentation}        # TODO: Replace with actual token retrieval logic",
-                    f"{indentation}        token = 'your-bearer-token-here'",
-                    f"{indentation}        metadata = (('{auth_header.lower()}', f'Bearer {{token}}'),)",
-                ]
-            )
-        elif auth_type == "api_key":
-            lines.extend(
-                [
-                    f"{indentation}        # API key authentication",
-                    f"{indentation}        # TODO: Replace with actual API key retrieval logic",
-                    f"{indentation}        api_key = 'your-api-key-here'",
-                    f"{indentation}        metadata = (('{auth_header.lower()}', api_key),)",
-                ]
-            )
-        elif auth_type == "mtls":
-            lines.extend(
-                [
-                    f"{indentation}        # mTLS authentication (handled at channel level)",
-                    f"{indentation}        # TODO: Configure client certificates in channel creation",
-                    f"{indentation}        metadata = ()",  # Empty metadata for mTLS
-                ]
-            )
-        elif auth_type == "custom":
-            lines.extend(
-                [
-                    f"{indentation}        # Custom authentication",
-                    f"{indentation}        # TODO: Implement custom auth metadata logic",
-                    f"{indentation}        metadata = ()",  # Placeholder for custom auth
-                ]
-            )
-        else:
-            # Default to empty metadata
-            lines.extend(
-                [
-                    f"{indentation}        metadata = ()",
                 ]
             )
 

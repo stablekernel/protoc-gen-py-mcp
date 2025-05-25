@@ -438,6 +438,71 @@ src/protoc_gen_py_mcp/
 
 **Code Quality Improvement**: Method complexity reduced, better separation of concerns achieved.
 
+### 📋 Auth Parameters Refactor: ✅ COMPLETED - Replace with Request Interceptor Pattern
+
+**✅ IMPLEMENTATION COMPLETED**
+
+**What was accomplished**:
+
+1. **✅ Removed Auth Parameters from Plugin**:
+   - Eliminated `auth_type`, `auth_header`, and `auth_metadata` parameters
+   - Removed auth parameter validation and getter methods
+   - Updated parameter docstring to remove auth references
+
+2. **✅ Implemented Request Interceptor Pattern**:
+   ```python
+   # Added to CodeGenerationOptions dataclass:
+   use_request_interceptor: bool
+   
+   # Generated default interceptor function:
+   def default_request_interceptor(request, method_name, metadata):
+       """Default request interceptor - no modifications."""
+       return request, metadata
+   
+   request_interceptor = default_request_interceptor
+   ```
+
+3. **✅ Updated Code Generation**:
+   ```python
+   # New gRPC call pattern with interceptor:
+   if options.use_request_interceptor:
+       request, metadata = request_interceptor(request, 'MethodName', ())
+       response = stub.MethodName(request, metadata=metadata)
+   else:
+       response = stub.MethodName(request)
+   ```
+
+4. **✅ Maintained Backward Compatibility**:
+   - Default behavior unchanged when interceptor not enabled
+   - All 24 tests continue to pass
+   - No breaking changes to existing generated code
+
+5. **✅ Parameter Control**:
+   - New parameter: `request_interceptor=true` to enable pattern
+   - Default: disabled (generates simple gRPC calls)
+   - User can override `request_interceptor` function for custom auth/logging
+
+**Benefits Achieved**:
+- ✅ Flexible authentication and middleware pattern
+- ✅ Reduced parameter complexity (removed 3 auth-specific parameters)
+- ✅ Better adherence to original REQUIREMENTS.md scope
+- ✅ User-customizable request modification (auth, logging, monitoring)
+- ✅ Clean separation of concerns (auth logic moved to user code)
+
+**Usage Example**:
+```bash
+# Enable request interceptor pattern
+protoc --py-mcp_opt="request_interceptor=true" example.proto
+
+# User can then customize in generated code:
+def custom_auth_interceptor(request, method_name, metadata):
+    """Add bearer token authentication."""
+    headers = [('authorization', 'Bearer ' + get_token())]
+    return request, metadata + tuple(headers)
+
+request_interceptor = custom_auth_interceptor
+```
+
 ### 📋 Plan 5: Consider Template Engine for Code Generation
 
 **Current Issue**: String concatenation for code generation could be more maintainable
