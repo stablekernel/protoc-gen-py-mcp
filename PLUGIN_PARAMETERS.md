@@ -170,45 +170,62 @@ How to handle streaming RPC methods.
 --py-mcp_opt="stream_mode=collect"
 ```
 
-## Authentication
+## Authentication & Middleware
 
-### `auth_type`
-**Type:** `string` | **Default:** `none`  
-**Values:** `none`, `bearer`, `api_key`, `mtls`, `custom`
+### `request_interceptor`
+**Type:** `boolean` | **Default:** `false`
 
-Authentication mechanism for gRPC calls.
+Generate request interceptor pattern for custom authentication, logging, and request modification.
+
+When enabled, the generated code includes a customizable request interceptor function that allows you to modify requests and metadata before they are sent to the gRPC server.
 
 ```bash
+# Enable request interceptor pattern
+--py-mcp_opt="request_interceptor=true"
+```
+
+**Generated Code Example:**
+```python
+# Default interceptor function (can be customized)
+def default_request_interceptor(request, method_name, metadata):
+    """Default request interceptor - no modifications."""
+    return request, metadata
+
+# Global interceptor - override this for custom behavior
+request_interceptor = default_request_interceptor
+
+# Usage in generated tools:
+def some_tool():
+    request = SomeRequest()
+    # Apply interceptor for auth/logging/modifications
+    request, metadata = request_interceptor(request, 'SomeMethod', ())
+    response = stub.SomeMethod(request, metadata=metadata)
+```
+
+**Customization Examples:**
+```python
 # Bearer token authentication
---py-mcp_opt="auth_type=bearer"
+def bearer_auth_interceptor(request, method_name, metadata):
+    """Add bearer token authentication."""
+    token = get_bearer_token()  # Your token retrieval logic
+    auth_metadata = [('authorization', f'Bearer {token}')]
+    return request, metadata + tuple(auth_metadata)
 
-# API key authentication  
---py-mcp_opt="auth_type=api_key"
+# API key authentication
+def api_key_interceptor(request, method_name, metadata):
+    """Add API key authentication."""
+    api_key = get_api_key()  # Your API key retrieval logic
+    auth_metadata = [('x-api-key', api_key)]
+    return request, metadata + tuple(auth_metadata)
 
-# Mutual TLS
---py-mcp_opt="auth_type=mtls"
+# Request logging
+def logging_interceptor(request, method_name, metadata):
+    """Log all requests for debugging."""
+    print(f"Calling {method_name} with request: {request}")
+    return request, metadata
 
-# Custom authentication
---py-mcp_opt="auth_type=custom"
-```
-
-### `auth_header`
-**Type:** `string` | **Default:** `Authorization`
-
-Header name for API key or bearer token authentication.
-
-```bash
---py-mcp_opt="auth_type=api_key,auth_header=X-API-Key"
-```
-
-### `auth_metadata`
-**Type:** `boolean` | **Default:** `true`
-
-Generate metadata injection code for authentication.
-
-```bash
-# Disable auth metadata generation
---py-mcp_opt="auth_metadata=false"
+# Override the global interceptor
+request_interceptor = bearer_auth_interceptor  # or your custom function
 ```
 
 ## Debug & Development
@@ -243,7 +260,7 @@ protoc --py-mcp_out=gen \
 ### Production API Integration
 ```bash
 protoc --py-mcp_out=src/generated \
-  --py-mcp_opt="grpc_target=api.prod.com:443,auth_type=bearer,timeout=60,async=true" \
+  --py-mcp_opt="grpc_target=api.prod.com:443,request_interceptor=true,timeout=60,async=true" \
   api.proto
 ```
 
@@ -261,12 +278,23 @@ protoc --py-mcp_out=debug \
   problem.proto
 ```
 
+### Authentication with Request Interceptor
+```bash
+# Generate code with request interceptor support
+protoc --py-mcp_out=src/mcp \
+  --py-mcp_opt="request_interceptor=true,grpc_target=api.example.com:443" \
+  auth_service.proto
+
+# Then customize the interceptor in your code:
+# Edit the generated file to add your authentication logic
+```
+
 ## Parameter Combinations
 
 Multiple parameters are comma-separated:
 
 ```bash
---py-mcp_opt="async=true,auth_type=bearer,grpc_target=api.example.com:443,timeout=30,debug=basic"
+--py-mcp_opt="async=true,request_interceptor=true,grpc_target=api.example.com:443,timeout=30,debug=basic"
 ```
 
 ## Boolean Parameter Formats

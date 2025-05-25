@@ -294,82 +294,57 @@ src/protoc_gen_py_mcp/
 - Add parameterized tests for different proto features
 - Include negative test cases for error handling
 
-### 📋 Plan 3: Simplify Parameter Validation Complexity
+### 📋 Plan 3: ✅ COMPLETED - Simplify Parameter Validation Complexity
 
-**Current Issue**: 100+ lines of validation code with complex nested logic
+**✅ IMPLEMENTATION COMPLETED**
 
-**Simplification Strategy**:
+**What was accomplished**:
 
-1. **Phase 1: Extract Validation Rules**
+1. **✅ Created Declarative Validation Module**: 
+   - New file: `src/protoc_gen_py_mcp/validation.py`
+   - Replaced 100+ lines of complex validation with clean declarative rules
+   - Added comprehensive type hints and dataclass structures
+
+2. **✅ Implemented ValidationRule System**:
    ```python
-   # core/validation_rules.py
-   from typing import Callable, List, Any
-   
    @dataclass
    class ValidationRule:
        field_name: str
-       validator: Callable[[Any], bool]
+       validator: Callable[[Any], bool] 
        error_message: str
        suggestions: List[str] = field(default_factory=list)
-   
-   # Define rules declaratively
-   VALIDATION_RULES = [
-       ValidationRule(
-           field_name="timeout",
-           validator=lambda x: x.isdigit() and 0 < int(x) <= 300,
-           error_message="timeout must be 1-300 seconds",
-           suggestions=["timeout=30", "timeout=60"]
-       ),
-       ValidationRule(
-           field_name="tool_name_case",
-           validator=lambda x: x in ["snake", "camel", "pascal", "kebab"],
-           error_message="tool_name_case must be snake, camel, pascal, or kebab",
-           suggestions=["tool_name_case=snake"]
-       ),
-       # ... more rules
-   ]
+       warning_threshold: Optional[Callable[[Any], bool]] = None
    ```
 
-2. **Phase 2: Implement Generic Validator**
+3. **✅ Reduced Validation Logic Complexity**:
    ```python
-   class ParameterValidator:
-       def __init__(self, rules: List[ValidationRule]):
-           self.rules = {rule.field_name: rule for rule in rules}
-       
-       def validate(self, parameters: Dict[str, str]) -> ValidationResult:
-           errors = []
-           warnings = []
-           
-           for param_name, param_value in parameters.items():
-               if param_name in self.rules:
-                   rule = self.rules[param_name]
-                   if not rule.validator(param_value):
-                       errors.append(self._format_error(rule, param_value))
-           
-           return ValidationResult(errors=errors, warnings=warnings)
+   # Before: 100+ lines of nested if/else logic
+   # After: 20 lines using declarative validator
+   def _validate_parameters(self) -> None:
+       result = default_validator.validate(self.parameters)
+       for error in result.errors:
+           self.log_error(error)
    ```
 
-3. **Phase 3: Add Custom Validators**
-   ```python
-   # Custom validator functions
-   def validate_grpc_target(value: str) -> bool:
-       """Validate host:port format."""
-       return ":" in value and len(value.split(":")) == 2
-   
-   def validate_pattern_placeholder(pattern: str, required_placeholder: str) -> bool:
-       """Validate pattern contains required placeholder."""
-       return required_placeholder in pattern
-   
-   def validate_file_extension(filename: str, required_ext: str) -> bool:
-       """Validate file has required extension."""
-       return filename.endswith(required_ext)
-   ```
+4. **✅ Added Comprehensive Test Coverage**:
+   - New file: `tests/unit/test_validation.py` (23 test cases)
+   - Tests all validation functions, rules, and edge cases
+   - Increased total test count from 24 to 47 tests
 
-**Benefits**:
-- Declarative validation rules (easier to understand and modify)
-- Reduced code complexity (from 100+ lines to ~30 lines)
-- Better error messages with suggestions
-- Easier to test individual validation rules
+5. **✅ Maintained Full Backward Compatibility**:
+   - All existing tests continue to pass
+   - Same validation behavior and error messages
+   - No breaking changes to plugin interface
+
+**Benefits Achieved**:
+- ✅ Reduced validation code complexity by 80% (100+ lines → 20 lines)
+- ✅ Declarative rules easier to understand and modify
+- ✅ Better error messages with automatic suggestions
+- ✅ Individual validation rules are testable
+- ✅ Easy to add new validation rules
+- ✅ Clean separation of concerns (validation logic extracted)
+
+**Code Quality Improvement**: Validation complexity dramatically reduced while improving maintainability and testability.
 
 ### 📋 Plan 4: ✅ COMPLETED - Improve Method Signatures with Dataclasses
 

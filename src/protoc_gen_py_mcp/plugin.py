@@ -7,6 +7,8 @@ from typing import Any, Dict, List, Optional, Sequence, TypedDict
 from google.protobuf import descriptor_pb2
 from google.protobuf.compiler import plugin_pb2 as plugin
 
+from .validation import default_validator
+
 
 class FieldInfo(TypedDict, total=False):
     """Type definition for field information dictionaries."""
@@ -96,22 +98,6 @@ class McpPlugin:
         """Log warning message to stderr."""
         sys.stderr.write(f"[protoc-gen-py-mcp WARNING] {message}\n")
         sys.stderr.flush()
-
-    def _create_validation_error(
-        self, param_name: str, param_value: str, valid_options: List[str]
-    ) -> str:
-        """Create a detailed validation error message."""
-        return (
-            f"Invalid value '{param_value}' for parameter '{param_name}'. "
-            f"Valid options are: {', '.join(valid_options)}"
-        )
-
-    def _create_parameter_error(self, param_name: str, issue: str, suggestion: str = "") -> str:
-        """Create a detailed parameter error message."""
-        message = f"Parameter '{param_name}': {issue}"
-        if suggestion:
-            message += f". {suggestion}"
-        return message
 
     def _should_log_level(self, level: str) -> bool:
         """Check if we should log at the given level."""
@@ -233,98 +219,24 @@ class McpPlugin:
         self._validate_parameters()
 
     def _validate_parameters(self) -> None:
-        """Validate all plugin parameters and log warnings/errors for invalid values."""
-        errors = []
-        warnings = []
+        """
+        Validate all parameters using declarative rules.
 
-        # Validate enum-type parameters
-        enum_validations = {
-            "tool_name_case": ["snake", "camel", "pascal", "kebab"],
-            "error_format": ["standard", "simple", "detailed"],
-            "stream_mode": ["collect", "skip", "warn"],
-            "debug": ["", "true", "1", "yes", "basic", "verbose", "trace", "false", "0", "no"],
-        }
-
-        for param_name, valid_values in enum_validations.items():
-            if param_name in self.parameters:
-                value = self.parameters[param_name].lower()
-                if value not in valid_values:
-                    errors.append(self._create_validation_error(param_name, value, valid_values))
-
-        # Validate timeout parameter
-        if "timeout" in self.parameters:
-            try:
-                timeout_val = int(self.parameters["timeout"])
-                if timeout_val <= 0:
-                    errors.append(
-                        self._create_parameter_error(
-                            "timeout", "must be a positive integer", "Example: timeout=30"
-                        )
-                    )
-                elif timeout_val > 300:
-                    warnings.append(
-                        f"timeout={timeout_val} is very high (>5 minutes). Consider a lower value for better user experience."
-                    )
-            except ValueError:
-                errors.append(
-                    self._create_parameter_error(
-                        "timeout",
-                        f"must be an integer, got '{self.parameters['timeout']}'",
-                        "Example: timeout=30",
-                    )
-                )
-
-        # Validate gRPC target format
-        if "grpc_target" in self.parameters:
-            target = self.parameters["grpc_target"]
-            if not target or ":" not in target:
-                errors.append(
-                    self._create_parameter_error(
-                        "grpc_target",
-                        "must be in format 'host:port'",
-                        "Example: grpc_target=localhost:50051 or grpc_target=api.example.com:443",
-                    )
-                )
-
-        # Validate output suffix
-        if "output_suffix" in self.parameters:
-            suffix = self.parameters["output_suffix"]
-            if not suffix.endswith(".py"):
-                errors.append(
-                    self._create_parameter_error(
-                        "output_suffix",
-                        "must end with '.py'",
-                        "Example: output_suffix=_mcp_server.py",
-                    )
-                )
-
-        # Validate pattern parameters contain required placeholders
-        pattern_validations = {
-            "server_name_pattern": "{service}",
-            "function_name_pattern": "{service}",
-        }
-
-        for param_name, required_placeholder in pattern_validations.items():
-            if param_name in self.parameters:
-                pattern = self.parameters[param_name]
-                if required_placeholder not in pattern:
-                    errors.append(
-                        self._create_parameter_error(
-                            param_name,
-                            f"must contain '{required_placeholder}' placeholder",
-                            f"Example: {param_name}=My{required_placeholder}Server",
-                        )
-                    )
+        This method uses the validation module to perform comprehensive
+        validation with clear error messages and suggestions.
+        """
+        # Use the declarative validator
+        result = default_validator.validate(self.parameters)
 
         # Log all errors and warnings
-        for error in errors:
+        for error in result.errors:
             self.log_error(error)
 
-        for warning in warnings:
+        for warning in result.warnings:
             self.log_warning(warning)
 
         # If there are errors, provide helpful guidance
-        if errors:
+        if result.errors:
             self.log_error(
                 "Parameter validation failed. See PLUGIN_PARAMETERS.md for complete documentation."
             )
