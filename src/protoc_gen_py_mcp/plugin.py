@@ -1,6 +1,7 @@
 """Protoc plugin for generating Python MCP server code."""
 
 import sys
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Sequence, TypedDict
 
 from google.protobuf import descriptor_pb2
@@ -17,6 +18,34 @@ class FieldInfo(TypedDict, total=False):
     repeated: bool
     is_oneof: bool
     oneof_name: str
+
+
+@dataclass
+class MethodGenerationContext:
+    """Context information for generating a single method tool."""
+
+    method: descriptor_pb2.MethodDescriptorProto
+    service: descriptor_pb2.ServiceDescriptorProto
+    proto_file: descriptor_pb2.FileDescriptorProto
+    service_index: int
+    method_index: int
+    indentation: str = ""
+
+
+@dataclass
+class CodeGenerationOptions:
+    """Options for code generation behavior."""
+
+    async_mode: bool
+    include_comments: bool
+    tool_name_case: str
+    auth_type: str
+    grpc_target: Optional[str]
+    insecure_channel: bool
+    grpc_timeout: int
+    stream_mode: str
+    auth_header: str
+    show_generated_code: bool
 
 
 class McpPlugin:
@@ -139,6 +168,21 @@ class McpPlugin:
     def _should_generate_auth_metadata(self) -> bool:
         """Check if auth metadata should be generated."""
         return self.parameters.get("auth_metadata", "true").lower() in ("true", "1", "yes")
+
+    def _create_code_generation_options(self) -> CodeGenerationOptions:
+        """Create CodeGenerationOptions from current plugin parameters."""
+        return CodeGenerationOptions(
+            async_mode=self._is_async_mode(),
+            include_comments=self._include_comments(),
+            tool_name_case=self._get_tool_name_case(),
+            auth_type=self._get_auth_type(),
+            grpc_target=self._get_grpc_target(),
+            insecure_channel=self._is_insecure_channel(),
+            grpc_timeout=self._get_grpc_timeout(),
+            stream_mode=self._get_stream_mode(),
+            auth_header=self._get_auth_header(),
+            show_generated_code=self._show_generated_code(),
+        )
 
     def _has_optional_fields(self, proto_file: descriptor_pb2.FileDescriptorProto) -> bool:
         """Check if proto file has any optional fields that would need Optional typing."""
@@ -977,28 +1021,32 @@ class McpPlugin:
 
             if is_client_stream or is_server_stream:
                 self._handle_streaming_method(
-                    lines, method, proto_file, service_index, method_index
+                    lines, method, service, proto_file, service_index, method_index
                 )
             else:
-                self._generate_method_tool(
-                    lines, method, proto_file, service_index, method_index, indentation=""
+                context = MethodGenerationContext(
+                    method=method,
+                    service=service,
+                    proto_file=proto_file,
+                    service_index=service_index,
+                    method_index=method_index,
+                    indentation="",
                 )
+                options = self._create_code_generation_options()
+                self._generate_method_tool(lines, context, options)
 
     def _generate_method_tool(
         self,
         lines: List[str],
-        method: descriptor_pb2.MethodDescriptorProto,
-        proto_file: descriptor_pb2.FileDescriptorProto,
-        service_index: int,
-        method_index: int,
-        indentation: str = "",
+        context: MethodGenerationContext,
+        options: CodeGenerationOptions,
     ) -> None:
         """Generate an MCP tool function for a gRPC method."""
-        method_name = method.name
-        method_name_converted = self._convert_tool_name(method_name)
+        method_name = context.method.name
+        method_name_converted = self._convert_tool_name(method_name, options.tool_name_case)
 
         # Analyze input message fields to generate function parameters
-        input_fields = self._analyze_message_fields(method.input_type)
+        input_fields = self._analyze_message_fields(context.method.input_type)
 
         # Generate function signature with parameters
         # Separate required and optional parameters to ensure proper Python syntax
@@ -1018,15 +1066,17 @@ class McpPlugin:
         # Try to get method comment from source code info
         # Method path is [6, service_index, 2, method_index] where:
         # 6 = services field, 2 = methods field within service
-        method_comment = self._get_comment(proto_file.name, [6, service_index, 2, method_index])
+        method_comment = self._get_comment(
+            context.proto_file.name, [6, context.service_index, 2, context.method_index]
+        )
 
         # Create enhanced docstring with method comment if available (if comments are enabled)
-        if self._include_comments() and method_comment:
+        if options.include_comments and method_comment:
             # Clean up the comment to avoid trailing whitespace
             clean_comment = method_comment.strip()
-            docstring = f'{indentation}    """Tool for {method_name} RPC method.\n{indentation}\n{indentation}    {clean_comment}\n{indentation}    """'
+            docstring = f'{context.indentation}    """Tool for {method_name} RPC method.\n{context.indentation}\n{context.indentation}    {clean_comment}\n{context.indentation}    """'
         else:
-            docstring = f'{indentation}    """Tool for {method_name} RPC method."""'
+            docstring = f'{context.indentation}    """Tool for {method_name} RPC method."""'
 
         # Generate function definition with explicit tool name and description
         if method_comment:
@@ -1036,31 +1086,31 @@ class McpPlugin:
             # Fallback to generic description
             tool_description = f"Generated tool for {method_name} RPC method"
 
-        if self._is_async_mode():
+        if options.async_mode:
             lines.extend(
                 [
-                    f'{indentation}@mcp.tool(name="{method_name}", description="{tool_description}")',
-                    f"{indentation}async def {method_name_converted}({param_str}):",
+                    f'{context.indentation}@mcp.tool(name="{method_name}", description="{tool_description}")',
+                    f"{context.indentation}async def {method_name_converted}({param_str}):",
                     docstring,
                 ]
             )
         else:
             lines.extend(
                 [
-                    f'{indentation}@mcp.tool(name="{method_name}", description="{tool_description}")',
-                    f"{indentation}def {method_name_converted}({param_str}):",
+                    f'{context.indentation}@mcp.tool(name="{method_name}", description="{tool_description}")',
+                    f"{context.indentation}def {method_name_converted}({param_str}):",
                     docstring,
                 ]
             )
 
         # Generate request message construction
-        pb2_module = proto_file.name.replace(".proto", "_pb2").replace("/", ".")
-        input_type_name = method.input_type.split(".")[-1]  # Get the simple name
+        pb2_module = context.proto_file.name.replace(".proto", "_pb2").replace("/", ".")
+        input_type_name = context.method.input_type.split(".")[-1]  # Get the simple name
 
         lines.extend(
             [
-                f"{indentation}    # Construct request message",
-                f"{indentation}    request = {pb2_module}.{input_type_name}()",
+                f"{context.indentation}    # Construct request message",
+                f"{context.indentation}    request = {pb2_module}.{input_type_name}()",
             ]
         )
 
@@ -1075,11 +1125,11 @@ class McpPlugin:
 
         # Add oneof validation comments
         if oneofs:
-            lines.append(f"{indentation}    # Oneof validation:")
+            lines.append(f"{context.indentation}    # Oneof validation:")
             for oneof_name, field_names in oneofs.items():
                 field_list = ", ".join(field_names)
                 lines.append(
-                    f"{indentation}    # Only one of [{field_list}] should be provided for oneof '{oneof_name}'"
+                    f"{context.indentation}    # Only one of [{field_list}] should be provided for oneof '{oneof_name}'"
                 )
 
         # Generate field assignment code
@@ -1087,56 +1137,48 @@ class McpPlugin:
             if field["optional"]:
                 lines.extend(
                     [
-                        f"{indentation}    if {field['name']} is not None:",
-                        f"{indentation}        request.{field['name']} = {field['name']}",
+                        f"{context.indentation}    if {field['name']} is not None:",
+                        f"{context.indentation}        request.{field['name']} = {field['name']}",
                     ]
                 )
             else:
-                lines.append(f"{indentation}    request.{field['name']} = {field['name']}")
+                lines.append(f"{context.indentation}    request.{field['name']} = {field['name']}")
 
         # Add spacing before gRPC call
         if input_fields:  # Only add space if there were fields assigned
             lines.append("")
 
         # Generate functional gRPC call
-        self._generate_grpc_call(lines, method, proto_file, indentation)
+        self._generate_grpc_call(lines, context, options)
 
     def _generate_grpc_call(
         self,
         lines: List[str],
-        method: descriptor_pb2.MethodDescriptorProto,
-        proto_file: descriptor_pb2.FileDescriptorProto,
-        indentation: str,
+        context: MethodGenerationContext,
+        options: CodeGenerationOptions,
     ) -> None:
         """Generate actual gRPC call implementation."""
-        method_name = method.name
-        grpc_module = proto_file.name.replace(".proto", "_pb2_grpc").replace("/", ".")
+        method_name = context.method.name
+        grpc_module = context.proto_file.name.replace(".proto", "_pb2_grpc").replace("/", ".")
 
-        # Get service name for stub
-        service_name = None
-        for service in proto_file.service:
-            for service_method in service.method:
-                if service_method.name == method_name:
-                    service_name = service.name
-                    break
-            if service_name:
-                break
+        # Get service name from context
+        service_name = context.service.name
 
         grpc_target = (
-            self._get_grpc_target() or "localhost:50051"
+            options.grpc_target or "localhost:50051"
         )  # Default target like the target file
 
         # Generate simple direct gRPC call like the target file
         lines.extend(
             [
-                f"{indentation}    channel = grpc.insecure_channel('{grpc_target}')",
-                f"{indentation}    stub = {grpc_module}.{service_name}Stub(channel)",
-                f"{indentation}    response = stub.{method_name}(request)",
+                f"{context.indentation}    channel = grpc.insecure_channel('{grpc_target}')",
+                f"{context.indentation}    stub = {grpc_module}.{service_name}Stub(channel)",
+                f"{context.indentation}    response = stub.{method_name}(request)",
                 "",
-                f"{indentation}    # Convert protobuf response to dict for MCP",
-                f"{indentation}    from google.protobuf.json_format import MessageToDict",
-                f"{indentation}    result = MessageToDict(response)",
-                f"{indentation}    return result",
+                f"{context.indentation}    # Convert protobuf response to dict for MCP",
+                f"{context.indentation}    from google.protobuf.json_format import MessageToDict",
+                f"{context.indentation}    result = MessageToDict(response)",
+                f"{context.indentation}    return result",
             ]
         )
 
@@ -1144,6 +1186,7 @@ class McpPlugin:
         self,
         lines: List[str],
         method: descriptor_pb2.MethodDescriptorProto,
+        service: descriptor_pb2.ServiceDescriptorProto,
         proto_file: descriptor_pb2.FileDescriptorProto,
         service_index: int,
         method_index: int,
@@ -1202,9 +1245,16 @@ class McpPlugin:
             )
         else:
             # Generate normal tool but with streaming handling
-            self._generate_method_tool(
-                lines, method, proto_file, service_index, method_index, indentation="    "
+            context = MethodGenerationContext(
+                method=method,
+                service=service,
+                proto_file=proto_file,
+                service_index=service_index,
+                method_index=method_index,
+                indentation="    ",
             )
+            options = self._create_code_generation_options()
+            self._generate_method_tool(lines, context, options)
 
     def _generate_streaming_tool_adapted(
         self,
@@ -1362,9 +1412,10 @@ class McpPlugin:
             result.append(char.lower())
         return "".join(result)
 
-    def _convert_tool_name(self, method_name: str) -> str:
+    def _convert_tool_name(self, method_name: str, case_type: Optional[str] = None) -> str:
         """Convert method name according to tool_name_case setting."""
-        case_type = self._get_tool_name_case()
+        if case_type is None:
+            case_type = self._get_tool_name_case()
 
         if case_type == "snake":
             return self._camel_to_snake(method_name)

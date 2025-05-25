@@ -173,25 +173,75 @@ clean:
     python -c "from gen.example.v1.service_pb2_mcp import create_service_server"
 ```
 
-## Complete Example: Chat Service
+## Complete Working Example: MCP Vibe Server
 
-See our complete example that demonstrates:
-- **Real gRPC service** with streaming and authentication
-- **Generated MCP server** with all features enabled
-- **Claude Desktop integration** for natural language interaction
+The repository includes a **complete, working example** that demonstrates the full plugin workflow from proto definition to working MCP server.
+
+### 📁 Example Location: `src/mcp_vibe/`
+
+This directory contains a **production-ready reference implementation** showing:
+
+- **Embedded gRPC service** - Full `VibeService` implementation
+- **Generated MCP tools** - Created automatically by protoc-gen-py-mcp  
+- **Integrated server** - Both gRPC and MCP servers in one process
+- **Claude Desktop integration** - Verified working configuration
+- **Complete packaging** - Installable Python package with CLI
+
+### 🚀 Architecture Overview
+
+```
+┌─────────────────────────────────────────┐
+│           mcp-vibe Process              │
+│                                         │
+│  ┌─────────────────┐ ┌─────────────────┐│
+│  │ Background      │ │ Main Thread     ││
+│  │ Thread          │ │                 ││
+│  │                 │ │ FastMCP Server  ││
+│  │ gRPC Server     │ │ (stdio/MCP      ││
+│  │ VibeService     │ │  protocol)      ││
+│  │ (localhost:     │ │                 ││
+│  │  50051)         │ │ MCP Tools:      ││
+│  │                 │ │ - SetVibe       ││
+│  │                 │ │ - GetVibe       ││
+│  └─────────────────┘ └─────────────────┘│
+│           │                   │          │
+│           └─── localhost ─────┘          │
+└─────────────────────────────────────────┘
+              │
+    ┌─────────┴─────────┐
+    │   LLM Client      │
+    │  (Claude Desktop) │
+    │   MCP Protocol    │
+    └───────────────────┘
+```
+
+### 🎯 Key Demonstration Points
+
+1. **Plugin Code Generation**: Shows exactly how protoc-gen-py-mcp transforms `.proto` files into working MCP tools
+2. **Embedded Pattern**: Demonstrates running gRPC server and MCP server in single process
+3. **Real-world Integration**: Provides template for production gRPC-to-MCP bridges  
+4. **End-to-End Testing**: Includes integration tests and demo scripts
+
+### 📖 Documentation
+
+- **`src/mcp_vibe/README.md`** - Complete usage and installation guide
+- **`src/mcp_vibe/ARCHITECTURE.md`** - Technical architecture deep-dive
+- **`src/mcp_vibe/demo.py`** - Interactive testing script
+
+### 🛠 Quick Start
 
 ```bash
-# Run the example
-git clone https://github.com/your-org/protoc-gen-py-mcp
-cd protoc-gen-py-mcp
-
-# Generate and install example
+# 1. Generate the MCP tools from proto definition
 make proto
-cd ../mcp-vibe-example  # Sibling directory
+
+# 2. Install the example application
+cd src/mcp_vibe
 pip install -e .
 
-# Test with Claude Desktop
-mcp-vibe --help
+# 3. Run the integrated server
+mcp-vibe --debug
+
+# 4. Test with Claude Desktop (see README for config)
 ```
 
 **✅ VERIFIED**: This example has been tested and confirmed working with Claude Desktop!
