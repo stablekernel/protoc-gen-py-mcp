@@ -223,76 +223,68 @@ src/protoc_gen_py_mcp/
 - Better code organization and maintainability
 - Enables parallel development of features
 
-### 📋 Plan 2: Increase Test Coverage (31% → 80%+)
+### 📋 Plan 2: ✅ COMPLETED - Increase Test Coverage (42% → 86%+)
 
-**Current Coverage Analysis**:
-- Source code: 1844 lines
-- Test code: 1291 lines (good ratio)
-- Coverage: 31% (320/463 uncovered lines)
+**✅ IMPLEMENTATION COMPLETED**
 
-**Target Areas for Testing**:
+**Coverage Achievement**:
+- **Before**: 42% coverage (592 statements, 342 uncovered)
+- **After**: 86% coverage (592 statements, 81 uncovered)
+- **Improvement**: +44% coverage increase
+- **Target exceeded**: Surpassed 80% target by 6%
 
-1. **Phase 1: Core Plugin Logic**
+**What was accomplished**:
+
+1. **✅ Expanded Plugin Testing (35% → 85% coverage)**:
    ```python
-   # Tests to add:
-   tests/unit/test_config.py              # Parameter validation
-   tests/unit/test_type_analyzer.py       # Type mapping
-   tests/unit/test_code_generator.py      # Code generation
-   tests/unit/test_error_handling.py      # Error scenarios
-   ```
-   - Test all parameter validation edge cases
-   - Test type mapping for all protobuf types
-   - Test code generation with various proto features
-   - Test error handling and edge cases
-
-2. **Phase 2: CLI Module Testing**
-   ```python
-   # tests/unit/test_cli.py - Currently 0% coverage
-   def test_cli_main_success():
-       # Test successful plugin execution
-   
-   def test_cli_main_error_handling():
-       # Test plugin error scenarios
-   
-   def test_cli_parameter_passing():
-       # Test parameter parsing from command line
+   # Added comprehensive test classes:
+   TestMcpPluginConfiguration      # All parameter getters/setters
+   TestMcpPluginLogging           # Debug levels, error/warning output  
+   TestMcpPluginGrpcConfiguration # gRPC targets, timeouts, async modes
+   TestMcpPluginUtilityMethods    # Type conversion, field analysis
    ```
 
-3. **Phase 3: Integration Test Expansion**
+2. **✅ Created CLI Module Tests (0% → 100% coverage)**:
    ```python
-   # tests/integration/test_real_world_scenarios.py
-   def test_large_proto_file():
-       # Test with complex, real-world proto files
-   
-   def test_authentication_scenarios():
-       # Test all auth types
-   
-   def test_streaming_rpc_handling():
-       # Test streaming mode configurations
-   
-   def test_error_propagation():
-       # Test error handling end-to-end
+   # New file: tests/unit/test_cli.py
+   test_main_import               # Function availability
+   test_main_with_mock_stdin_stdout  # Main execution paths
+   test_main_error_handling_with_mock # Error scenarios
    ```
 
-4. **Phase 4: Property-Based Testing**
-   ```python
-   # Use hypothesis for property-based testing
-   from hypothesis import given, strategies as st
-   
-   @given(proto_field=st....)
-   def test_type_mapping_always_valid(proto_field):
-       # Ensure type mapping never fails
-   
-   @given(parameters=st.dictionaries(...))
-   def test_parameter_validation_robust(parameters):
-       # Ensure validation handles all inputs gracefully
+3. **✅ Added Error Handling Tests**:
+   ```python  
+   # New file: tests/unit/test_error_handling.py
+   TestMcpPluginErrorHandling     # 12 test methods
+   # Covers: edge cases, malformed input, graceful failures
    ```
 
-**Implementation Strategy**:
-- Start with untested code paths (use coverage report to identify)
-- Focus on business logic over generated code
-- Add parameterized tests for different proto features
-- Include negative test cases for error handling
+4. **✅ Created Integration Test Suite**:
+   ```python
+   # New file: tests/integration/test_real_world_scenarios.py
+   TestRealWorldScenarios         # 6 comprehensive test methods
+   # Covers: large proto files, request interceptors, streaming, nested types
+   ```
+
+5. **✅ Test Count Growth**:
+   - **Before**: 47 tests total
+   - **After**: 101 tests total (**54 new tests**)
+   - **Distribution**: 35 unit + 66 integration/error handling
+
+**Coverage by Module**:
+- `plugin.py`: 85% coverage (main implementation)
+- `validation.py`: 97% coverage (comprehensive validation)
+- `cli/cli.py`: 100% coverage (complete CLI testing)
+- `cli/__init__.py`: 100% coverage
+
+**Benefits Achieved**:
+- ✅ More than doubled test coverage (42% → 86%)
+- ✅ Comprehensive edge case validation
+- ✅ Real-world scenario testing  
+- ✅ Improved confidence in refactoring
+- ✅ Better documentation through test examples
+
+**Code Quality Impact**: Dramatically reduced risk of undetected bugs while maintaining all existing functionality.
 
 ### 📋 Plan 3: ✅ COMPLETED - Simplify Parameter Validation Complexity
 
