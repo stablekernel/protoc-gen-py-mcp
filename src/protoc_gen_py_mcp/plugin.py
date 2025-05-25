@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence, TypedDict
 from google.protobuf import descriptor_pb2
 from google.protobuf.compiler import plugin_pb2 as plugin
 
+from .core.utils import ErrorUtils, NamingUtils, ProtoUtils
 from .validation import default_validator
 
 
@@ -162,13 +163,7 @@ class McpPlugin:
 
     def _has_optional_fields(self, proto_file: descriptor_pb2.FileDescriptorProto) -> bool:
         """Check if proto file has any optional fields that would need Optional typing."""
-        for service in proto_file.service:
-            for method in service.method:
-                input_fields = self._analyze_message_fields(method.input_type)
-                for field in input_fields:
-                    if field.get("optional", False):
-                        return True
-        return False
+        return ProtoUtils.has_optional_fields(proto_file, self._analyze_message_fields)
 
     def parse_parameters(self, parameter_string: str) -> None:
         """
@@ -244,59 +239,7 @@ class McpPlugin:
 
     def _create_detailed_error_context(self, file_name: str, exception: Exception) -> str:
         """Create detailed error message with context and troubleshooting tips."""
-        import traceback
-
-        error_type = type(exception).__name__
-        error_message = str(exception)
-
-        # Build detailed context
-        context_parts = [
-            f"File processing failed: {file_name}",
-            f"Error type: {error_type}",
-            f"Error message: {error_message}",
-        ]
-
-        # Add specific troubleshooting based on error type
-        if "AttributeError" in error_type:
-            context_parts.append(
-                "Troubleshooting: This may indicate a malformed proto file or unsupported proto feature."
-            )
-            context_parts.append(
-                "Try: Verify your proto file syntax with 'protoc --decode_raw < file.proto'"
-            )
-        elif "KeyError" in error_type:
-            context_parts.append(
-                "Troubleshooting: Missing required proto elements or invalid references."
-            )
-            context_parts.append(
-                "Try: Check that all message types and services are properly defined."
-            )
-        elif "ValueError" in error_type:
-            context_parts.append("Troubleshooting: Invalid parameter values or proto content.")
-            context_parts.append("Try: Review plugin parameters and proto file structure.")
-        elif "ImportError" in error_type or "ModuleNotFoundError" in error_type:
-            context_parts.append("Troubleshooting: Missing dependencies or installation issues.")
-            context_parts.append(
-                "Try: Run 'pip install protoc-gen-py-mcp[dev]' to ensure all dependencies."
-            )
-
-        # Add debug suggestions
-        context_parts.extend(
-            [
-                "",
-                "Debug suggestions:",
-                '1. Enable debug mode: --py-mcp_opt="debug=verbose"',
-                "2. Check proto file: protoc --decode_raw < your_file.proto",
-                "3. Verify installation: protoc-gen-py-mcp --version",
-                "4. Review documentation: PLUGIN_PARAMETERS.md",
-            ]
-        )
-
-        # Add stack trace in debug mode
-        if self.debug_mode:
-            context_parts.extend(["", "Stack trace (debug mode):", traceback.format_exc()])
-
-        return "\n".join(context_parts)
+        return ErrorUtils.create_detailed_error_context(file_name, exception, self.debug_mode)
 
     def _get_grpc_target(self) -> Optional[str]:
         """Get gRPC target address from parameters."""
@@ -1281,31 +1224,13 @@ class McpPlugin:
 
     def _camel_to_snake(self, name: str) -> str:
         """Convert CamelCase to snake_case."""
-        result = []
-        for i, char in enumerate(name):
-            if char.isupper() and i > 0:
-                result.append("_")
-            result.append(char.lower())
-        return "".join(result)
+        return NamingUtils.camel_to_snake(name)
 
     def _convert_tool_name(self, method_name: str, case_type: Optional[str] = None) -> str:
         """Convert method name according to tool_name_case setting."""
         if case_type is None:
             case_type = self._get_tool_name_case()
-
-        if case_type == "snake":
-            return self._camel_to_snake(method_name)
-        elif case_type == "camel":
-            # Keep first letter lowercase
-            return method_name[0].lower() + method_name[1:] if method_name else ""
-        elif case_type == "pascal":
-            # Keep as-is (PascalCase)
-            return method_name
-        elif case_type == "kebab":
-            return self._camel_to_snake(method_name).replace("_", "-")
-        else:
-            # Default to snake case
-            return self._camel_to_snake(method_name)
+        return NamingUtils.convert_tool_name(method_name, case_type)
 
 
 def main() -> None:
