@@ -1,10 +1,22 @@
 """Protoc plugin for generating Python MCP server code."""
 
 import sys
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, TypedDict
 
 from google.protobuf import descriptor_pb2
 from google.protobuf.compiler import plugin_pb2 as plugin
+
+
+class FieldInfo(TypedDict, total=False):
+    """Type definition for field information dictionaries."""
+
+    name: str
+    type: str
+    proto_type: str
+    optional: bool
+    repeated: bool
+    is_oneof: bool
+    oneof_name: str
 
 
 class McpPlugin:
@@ -51,6 +63,27 @@ class McpPlugin:
         """Log error message to stderr."""
         sys.stderr.write(f"[protoc-gen-py-mcp ERROR] {message}\n")
         sys.stderr.flush()
+
+    def log_warning(self, message: str) -> None:
+        """Log warning message to stderr."""
+        sys.stderr.write(f"[protoc-gen-py-mcp WARNING] {message}\n")
+        sys.stderr.flush()
+
+    def _create_validation_error(
+        self, param_name: str, param_value: str, valid_options: List[str]
+    ) -> str:
+        """Create a detailed validation error message."""
+        return (
+            f"Invalid value '{param_value}' for parameter '{param_name}'. "
+            f"Valid options are: {', '.join(valid_options)}"
+        )
+
+    def _create_parameter_error(self, param_name: str, issue: str, suggestion: str = "") -> str:
+        """Create a detailed parameter error message."""
+        message = f"Parameter '{param_name}': {issue}"
+        if suggestion:
+            message += f". {suggestion}"
+        return message
 
     def _should_log_level(self, level: str) -> bool:
         """Check if we should log at the given level."""
@@ -164,6 +197,171 @@ class McpPlugin:
         self.log_debug(f"Parsed parameters: {self.parameters}")
         self.log_debug(f"Debug level: {self.debug_level}")
 
+        # Validate parameters
+        self._validate_parameters()
+
+    def _validate_parameters(self) -> None:
+        """Validate all plugin parameters and log warnings/errors for invalid values."""
+        errors = []
+        warnings = []
+
+        # Validate enum-type parameters
+        enum_validations = {
+            "tool_name_case": ["snake", "camel", "pascal", "kebab"],
+            "error_format": ["standard", "simple", "detailed"],
+            "stream_mode": ["collect", "skip", "warn"],
+            "auth_type": ["none", "bearer", "api_key", "mtls", "custom"],
+            "debug": ["", "true", "1", "yes", "basic", "verbose", "trace", "false", "0", "no"],
+        }
+
+        for param_name, valid_values in enum_validations.items():
+            if param_name in self.parameters:
+                value = self.parameters[param_name].lower()
+                if value not in valid_values:
+                    errors.append(self._create_validation_error(param_name, value, valid_values))
+
+        # Validate timeout parameter
+        if "timeout" in self.parameters:
+            try:
+                timeout_val = int(self.parameters["timeout"])
+                if timeout_val <= 0:
+                    errors.append(
+                        self._create_parameter_error(
+                            "timeout", "must be a positive integer", "Example: timeout=30"
+                        )
+                    )
+                elif timeout_val > 300:
+                    warnings.append(
+                        f"timeout={timeout_val} is very high (>5 minutes). Consider a lower value for better user experience."
+                    )
+            except ValueError:
+                errors.append(
+                    self._create_parameter_error(
+                        "timeout",
+                        f"must be an integer, got '{self.parameters['timeout']}'",
+                        "Example: timeout=30",
+                    )
+                )
+
+        # Validate gRPC target format
+        if "grpc_target" in self.parameters:
+            target = self.parameters["grpc_target"]
+            if not target or ":" not in target:
+                errors.append(
+                    self._create_parameter_error(
+                        "grpc_target",
+                        "must be in format 'host:port'",
+                        "Example: grpc_target=localhost:50051 or grpc_target=api.example.com:443",
+                    )
+                )
+
+        # Validate output suffix
+        if "output_suffix" in self.parameters:
+            suffix = self.parameters["output_suffix"]
+            if not suffix.endswith(".py"):
+                errors.append(
+                    self._create_parameter_error(
+                        "output_suffix",
+                        "must end with '.py'",
+                        "Example: output_suffix=_mcp_server.py",
+                    )
+                )
+
+        # Validate pattern parameters contain required placeholders
+        pattern_validations = {
+            "server_name_pattern": "{service}",
+            "function_name_pattern": "{service}",
+        }
+
+        for param_name, required_placeholder in pattern_validations.items():
+            if param_name in self.parameters:
+                pattern = self.parameters[param_name]
+                if required_placeholder not in pattern:
+                    errors.append(
+                        self._create_parameter_error(
+                            param_name,
+                            f"must contain '{required_placeholder}' placeholder",
+                            f"Example: {param_name}=My{required_placeholder}Server",
+                        )
+                    )
+
+        # Validate auth_header for specific auth types
+        auth_type = self.parameters.get("auth_type", "none")
+        if auth_type in ("bearer", "api_key") and "auth_header" in self.parameters:
+            header = self.parameters["auth_header"]
+            if not header or not header.replace("-", "").replace("_", "").isalnum():
+                warnings.append(f"auth_header='{header}' may not be a valid HTTP header name")
+
+        # Log all errors and warnings
+        for error in errors:
+            self.log_error(error)
+
+        for warning in warnings:
+            self.log_warning(warning)
+
+        # If there are errors, provide helpful guidance
+        if errors:
+            self.log_error(
+                "Parameter validation failed. See PLUGIN_PARAMETERS.md for complete documentation."
+            )
+            self.log_error('Use --py-mcp_opt="param1=value1,param2=value2" to set parameters.')
+
+    def _create_detailed_error_context(self, file_name: str, exception: Exception) -> str:
+        """Create detailed error message with context and troubleshooting tips."""
+        import traceback
+
+        error_type = type(exception).__name__
+        error_message = str(exception)
+
+        # Build detailed context
+        context_parts = [
+            f"File processing failed: {file_name}",
+            f"Error type: {error_type}",
+            f"Error message: {error_message}",
+        ]
+
+        # Add specific troubleshooting based on error type
+        if "AttributeError" in error_type:
+            context_parts.append(
+                "Troubleshooting: This may indicate a malformed proto file or unsupported proto feature."
+            )
+            context_parts.append(
+                "Try: Verify your proto file syntax with 'protoc --decode_raw < file.proto'"
+            )
+        elif "KeyError" in error_type:
+            context_parts.append(
+                "Troubleshooting: Missing required proto elements or invalid references."
+            )
+            context_parts.append(
+                "Try: Check that all message types and services are properly defined."
+            )
+        elif "ValueError" in error_type:
+            context_parts.append("Troubleshooting: Invalid parameter values or proto content.")
+            context_parts.append("Try: Review plugin parameters and proto file structure.")
+        elif "ImportError" in error_type or "ModuleNotFoundError" in error_type:
+            context_parts.append("Troubleshooting: Missing dependencies or installation issues.")
+            context_parts.append(
+                "Try: Run 'pip install protoc-gen-py-mcp[dev]' to ensure all dependencies."
+            )
+
+        # Add debug suggestions
+        context_parts.extend(
+            [
+                "",
+                "Debug suggestions:",
+                '1. Enable debug mode: --py-mcp_opt="debug=verbose"',
+                "2. Check proto file: protoc --decode_raw < your_file.proto",
+                "3. Verify installation: protoc-gen-py-mcp --version",
+                "4. Review documentation: PLUGIN_PARAMETERS.md",
+            ]
+        )
+
+        # Add stack trace in debug mode
+        if self.debug_mode:
+            context_parts.extend(["", "Stack trace (debug mode):", traceback.format_exc()])
+
+        return "\n".join(context_parts)
+
     def _get_grpc_target(self) -> Optional[str]:
         """Get gRPC target address from parameters."""
         return self.parameters.get("grpc_target")
@@ -242,7 +440,7 @@ class McpPlugin:
         self.source_comments[proto_file.name] = comments
         self.log_debug(f"Extracted {len(comments)} comments from {proto_file.name}")
 
-    def _get_comment(self, proto_file_name: str, path: List[int]) -> str:
+    def _get_comment(self, proto_file_name: str, path: Sequence[int]) -> str:
         """
         Get comment for a specific path in a proto file.
 
@@ -646,9 +844,10 @@ class McpPlugin:
                     self.log_trace(f"  {i:3d}: {line}")
 
         except Exception as e:
-            error_msg = f"Error processing file {proto_file.name}: {str(e)}"
-            self.log_error(error_msg)
-            response.error = error_msg
+            # Create detailed error message with context
+            error_context = self._create_detailed_error_context(proto_file.name, e)
+            self.log_error(error_context)
+            response.error = error_context
 
     def generate_file_content(self, proto_file: descriptor_pb2.FileDescriptorProto) -> str:
         """
@@ -1204,8 +1403,31 @@ def main() -> None:
         sys.stdout.buffer.write(response.SerializeToString())
 
     except Exception as e:
-        # Last resort error handling
-        sys.stderr.write(f"[protoc-gen-py-mcp FATAL] {str(e)}\n")
+        # Enhanced last resort error handling
+        import traceback
+
+        error_msg_parts = [
+            "[protoc-gen-py-mcp FATAL] Plugin execution failed",
+            f"Error: {type(e).__name__}: {str(e)}",
+            "",
+            "This is likely due to one of the following:",
+            "1. Invalid protobuf input (malformed .proto file)",
+            "2. Missing dependencies or corrupted installation",
+            "3. Unsupported protobuf features",
+            "4. System-level issues (permissions, disk space, etc.)",
+            "",
+            "Troubleshooting steps:",
+            "1. Verify your .proto file syntax: protoc --decode_raw < your_file.proto",
+            "2. Reinstall the plugin: pip install --force-reinstall protoc-gen-py-mcp",
+            "3. Check protoc version: protoc --version (requires 3.20+)",
+            '4. Enable debug mode: --py-mcp_opt="debug=trace"',
+            "5. Report issue at: https://github.com/your-org/protoc-gen-py-mcp/issues",
+            "",
+            f"Stack trace:\n{traceback.format_exc()}",
+        ]
+
+        sys.stderr.write("\n".join(error_msg_parts))
+        sys.stderr.flush()
         sys.exit(1)
 
 

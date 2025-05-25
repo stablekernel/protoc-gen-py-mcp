@@ -1,71 +1,341 @@
 # protoc-gen-py-mcp
 
-This is a [Topeka](#topeka) plugin for the [protoc compiler](https://grpc.io/docs/protoc-installation/) that generates a [model-context-protocol(MCP)](https://modelcontextprotocol.io/introduction) server based on a [protocol buffer](https://protobuf.dev/) definition. Conceptually, this allows an AI model to use existing [gRPC](https://grpc.io/) codebases with natural language, allowing for rapid prototyping and usage of LLM capabilities for protobuf based codebases.
+A [Protocol Buffer](https://protobuf.dev/) compiler plugin that generates [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction) servers from gRPC service definitions. This enables AI models to interact with existing [gRPC](https://grpc.io/) services using natural language, bridging the gap between AI capabilities and protocol buffer-based codebases.
 
-## Prerequisites
+**⚡ Key Features:**
+- **Zero-config generation**: Automatically creates MCP tools from gRPC service methods
+- **Async/await support**: Modern Python patterns for high-performance applications
+- **Comprehensive authentication**: Bearer tokens, API keys, mTLS, and custom auth
+- **Package-aware structure**: Follows protobuf conventions for clean organization
+- **Extensive customization**: 20+ configuration options for naming, auth, and behavior
+- **Production-ready**: Type hints, error handling, and comprehensive testing
 
-- [protoc](https://grpc.io/docs/protoc-installation/) 3.20 or later
-[TODO: add all prerequisites to successfully build and run the plugin]
+## Quick Start
 
-## Running the plugin
+### Prerequisites
 
-[TODO: add instructions to run the plugin]
+- **Python 3.10+**
+- **protoc 3.20+** - [Installation guide](https://grpc.io/docs/protoc-installation/)
+- **uv** (recommended) or pip for dependency management
+
+### Installation
+
 ```bash
-# Create a virtual environment
-uv venv
-# Activate the virtual environment
-source .venv/bin/activate
 # Install the plugin
-uv pip install -e .
-# Generate python files from proto files
-make
+pip install protoc-gen-py-mcp
+
+# Or with uv (recommended)
+uv add protoc-gen-py-mcp
 ```
 
-## Debugging the plugin
+### Basic Usage
 
-[TODO: add instructions to debug the plugin]
+1. **Create a proto file** (`example.proto`):
 
-## Testing the example
+```protobuf
+syntax = "proto3";
 
-Install the example `mcp-vibe` server:
+package example.v1;
+
+service GreeterService {
+  // Say hello to someone
+  rpc SayHello(HelloRequest) returns (HelloResponse) {}
+}
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloResponse {
+  string message = 1;
+}
+```
+
+2. **Generate MCP server code**:
 
 ```bash
-# Install the example application
-cd examples/mcp_vibe_example
+# Generate standard protobuf files + MCP server
+protoc --python_out=gen --grpc_python_out=gen --pyi_out=gen \
+       --py-mcp_out=gen \
+       example.proto
+```
+
+3. **Use the generated MCP server**:
+
+```python
+from gen.example.v1.example_pb2_mcp import create_greeter_service_server
+
+# Create MCP server with gRPC connection
+mcp_server = create_greeter_service_server()
+
+# Add to your MCP application
+if __name__ == "__main__":
+    mcp_server.run()
+```
+
+That's it! Your gRPC service is now accessible via MCP protocol.
+
+## Configuration Options
+
+The plugin supports extensive customization via command-line parameters:
+
+```bash
+# Production API setup with authentication
+protoc --py-mcp_out=gen \
+  --py-mcp_opt="grpc_target=api.prod.com:443,auth_type=bearer,async=true,timeout=60" \
+  api.proto
+
+# Development with debug output  
+protoc --py-mcp_out=gen \
+  --py-mcp_opt="debug=verbose,insecure=true,grpc_target=localhost:9090" \
+  service.proto
+
+# Custom naming and output
+protoc --py-mcp_out=servers \
+  --py-mcp_opt="output_suffix=_server.py,tool_name_case=camel,server_name_pattern={service}MCP" \
+  services.proto
+```
+
+**📖 See [PLUGIN_PARAMETERS.md](PLUGIN_PARAMETERS.md) for complete documentation of all 20+ configuration options.**
+
+## Authentication Examples
+
+### Bearer Token Authentication
+```bash
+protoc --py-mcp_out=gen \
+  --py-mcp_opt="auth_type=bearer,grpc_target=secure-api.com:443" \
+  secure.proto
+```
+
+### API Key Authentication  
+```bash
+protoc --py-mcp_out=gen \
+  --py-mcp_opt="auth_type=api_key,auth_header=X-API-Key,grpc_target=api.example.com" \
+  api.proto
+```
+
+### Mutual TLS
+```bash
+protoc --py-mcp_out=gen \
+  --py-mcp_opt="auth_type=mtls,grpc_target=mtls-api.internal:443" \
+  internal.proto
+```
+
+## Project Structure
+
+The plugin follows protobuf package conventions:
+
+```
+your-project/
+├── protos/
+│   └── example/v1/
+│       └── service.proto      # package example.v1;
+├── gen/
+│   └── example/v1/            # Generated code follows package structure
+│       ├── __init__.py
+│       ├── service_pb2.py     # Standard protobuf
+│       ├── service_pb2_grpc.py # gRPC stubs  
+│       └── service_pb2_mcp.py # MCP server (this plugin)
+└── main.py
+```
+
+## Integration with Build Systems
+
+### Makefile Integration
+```makefile
+PROTO_SRC = protos/example/v1/service.proto
+GEN_DIR = gen
+
+.PHONY: generate clean
+
+generate:
+	protoc -I=protos \
+		--python_out=$(GEN_DIR) \
+		--grpc_python_out=$(GEN_DIR) \
+		--pyi_out=$(GEN_DIR) \
+		--py-mcp_out=$(GEN_DIR) \
+		$(PROTO_SRC)
+
+clean:
+	find $(GEN_DIR) -name "*_pb2*.py" -delete
+```
+
+### CI/CD Integration
+```yaml
+# .github/workflows/generate.yml
+- name: Generate MCP servers
+  run: |
+    pip install protoc-gen-py-mcp
+    make generate
+    
+- name: Test generated code
+  run: |
+    python -c "from gen.example.v1.service_pb2_mcp import create_service_server"
+```
+
+## Complete Example: Chat Service
+
+See our complete example that demonstrates:
+- **Real gRPC service** with streaming and authentication
+- **Generated MCP server** with all features enabled
+- **Claude Desktop integration** for natural language interaction
+
+```bash
+# Run the example
+git clone https://github.com/your-org/protoc-gen-py-mcp
+cd protoc-gen-py-mcp
+
+# Generate and install example
+make proto
+cd ../mcp-vibe-example  # Sibling directory
 pip install -e .
 
-# Test that it works
+# Test with Claude Desktop
 mcp-vibe --help
 ```
 
-Add the `mcp-vibe` server to your Claude Desktop MCP configuration (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+**✅ VERIFIED**: This example has been tested and confirmed working with Claude Desktop!
+
+Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
-    "vibe": {
-      "command": "/Users/YOUR_USERNAME/Projects/protoc-gen-py-mcp/examples/mcp_vibe_example/.venv/bin/mcp-vibe"
+    "vibe-example": {
+      "command": "mcp-vibe"
     }
   }
 }
 ```
 
-**✅ VERIFIED**: This example has been tested and confirmed working with Claude Desktop! You can ask Claude to "set the vibe to happy" or "what's the current vibe?" and it will interact with the gRPC service.
+You can then ask Claude: *"Set the vibe to excited"* or *"What's the current vibe?"*
 
-and run a client with above mcp server attached (eg. claude desktop)
+## Advanced Features
 
-## Topeka
+### Async/Await Support
+```bash
+# Generate async MCP tools
+protoc --py-mcp_out=gen --py-mcp_opt="async=true" service.proto
+```
 
-[Topeka](https://topeka.ai) is an open source project that provides code-generators for [Model-Context-Protocol (MCP)](https://modelcontextprotocol.io/introduction).
-It is designed to facilitate the usage of MCP seamlessly against existing gRPC based applications. This is done via
-leveraging code generation using the [protoc compiler](https://grpc.io/docs/protoc-installation/) and installing the relevant Topeka plugin.
+### Streaming RPC Handling
+```bash
+# Configure streaming behavior
+protoc --py-mcp_out=gen --py-mcp_opt="stream_mode=collect" streaming.proto
+```
 
-The plugins follow [Semantic Versioning](https://semver.org/) and any plugin prior to 1.0.0 releases ARE still subject to breaking changes. Please note, this is
-applied to the generated servers, not the plugins themselves, which do not provide public APIs. This project reserves the right to change how code generation is achieved,
-while maintaining stable MCP server APIs.
+### Custom Error Handling
+```bash
+# Detailed error responses
+protoc --py-mcp_out=gen --py-mcp_opt="error_format=detailed" service.proto
+```
+
+### Debug and Development
+```bash
+# Full debug output with generated code
+protoc --py-mcp_out=gen \
+  --py-mcp_opt="debug=trace,show_generated=true,show_types=true" \
+  service.proto
+```
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
+
+### Development Setup
+
+```bash
+# Clone and setup
+git clone https://github.com/your-org/protoc-gen-py-mcp
+cd protoc-gen-py-mcp
+uv venv && source .venv/bin/activate
+uv pip install -e .
+
+# Run tests
+make test
+
+# Quality checks
+make check-all
+```
+
+## Testing
+
+```bash
+# Run all tests
+make test
+
+# Test with coverage
+make coverage
+
+# Integration tests
+make test-integration
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**Plugin not found:**
+```bash
+# Ensure plugin is in PATH
+which protoc-gen-py-mcp
+# Or specify full path
+protoc --plugin=protoc-gen-py-mcp=/path/to/plugin ...
+```
+
+**Import errors in generated code:**
+```bash
+# Ensure proper Python package structure
+# Generated code should have __init__.py files
+ls gen/example/v1/__init__.py
+```
+
+**gRPC connection issues:**
+```bash
+# Test with insecure channel for development
+protoc --py-mcp_opt="insecure=true,debug=basic" service.proto
+```
+
+### Debug Mode
+
+Enable debug output for troubleshooting:
+
+```bash
+protoc --py-mcp_opt="debug=trace,show_generated=true" service.proto
+```
+
+## Limitations
+
+- **Streaming RPCs**: Currently collected into lists (configurable via `stream_mode`)
+- **Complex nested types**: Basic support for deeply nested oneofs
+- **Custom options**: Proto custom options not yet supported
+
+## Roadmap
+
+- [ ] Streaming RPC native support
+- [ ] Custom proto option handling
+- [ ] Template customization system
+- [ ] Performance optimizations
+- [ ] IDE integration
+
+## Support
+
+- **Documentation**: [Plugin Parameters](PLUGIN_PARAMETERS.md) | [Contributing](CONTRIBUTING.md)
+- **Issues**: [GitHub Issues](https://github.com/your-org/protoc-gen-py-mcp/issues)
+- **Examples**: See `examples/` directory
+
+## About Topeka
+
+[Topeka](https://topeka.ai) is an open source project providing code generators for [Model Context Protocol (MCP)](https://modelcontextprotocol.io/introduction). It facilitates seamless MCP integration with existing gRPC applications through protoc compiler plugins.
+
+**Semantic Versioning**: Plugins follow [SemVer](https://semver.org/). Pre-1.0.0 releases may include breaking changes to generated servers, while maintaining plugin compatibility.
 
 ## Maintainers
 
-[Stable Kernel](https://stablekernel.com) is the primary maintainer of this project and sponsor of the plugins, though we welcome outside contributions.
+**[Stable Kernel](https://stablekernel.com)** is the primary maintainer and sponsor of this project. We're a digital transformation company building LLM-enabled solutions for growing businesses.
 
-[Stable Kernel](https://stablekernel.com) is a digital transformation company building solutions that power LLM enablement for growing businesses. We have a track record of helping our partners solve their biggest challenges on their digital journey, whether they need insights or implementation. Every day, millions of people rely on software that we developed, and our custom software development and technology services have been trusted by some of the most innovative Fortune 500 companies in the world.
+Our custom software development and technology services are trusted by Fortune 500 companies worldwide. Every day, millions of people rely on software we've developed.
+
+## License
+
+[Apache License 2.0](LICENSE) - See LICENSE file for details.
