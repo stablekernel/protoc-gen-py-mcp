@@ -18,7 +18,9 @@ class TestMcpPluginErrorHandling:
         from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
         self.plugin.type_analyzer = TypeAnalyzer(
-            self.plugin.message_types, self.plugin.enum_types, self.plugin
+            self.plugin.protobuf_indexer.message_types,
+            self.plugin.protobuf_indexer.enum_types,
+            self.plugin,
         )
         self.plugin.code_generator = CodeGenerator(
             self.plugin.config, self.plugin.type_analyzer, self.plugin
@@ -156,7 +158,7 @@ class TestMcpPluginErrorHandling:
         nested_field.label = descriptor_pb2.FieldDescriptorProto.LABEL_REQUIRED
 
         # Index the messages
-        self.plugin._index_messages([parent_msg], "nested")
+        self.plugin.protobuf_indexer.index_messages([parent_msg], "nested")
 
         # Analyze the nested message - should handle gracefully even if structure is complex
         result = self.plugin.type_analyzer.analyze_message_fields("nested.Parent.Nested")
@@ -249,7 +251,7 @@ class TestMcpPluginErrorHandling:
         field2.oneof_index = 0  # Part of the first (and only) oneof
 
         # Index the message
-        self.plugin._index_messages([message], "oneof")
+        self.plugin.protobuf_indexer.index_messages([message], "oneof")
 
         # Analyze the message - should handle oneof gracefully
         result = self.plugin.type_analyzer.analyze_message_fields("oneof.OneofMessage")
@@ -282,11 +284,12 @@ class TestMcpPluginErrorHandling:
         proto_file.package = "com.example.api.v1.complex"
 
         # Store package information
-        self.plugin.file_packages[proto_file.name] = proto_file.package
+        self.plugin.protobuf_indexer.file_packages[proto_file.name] = proto_file.package
 
         # Verify package storage
         assert (
-            self.plugin.file_packages["complex/package/test.proto"] == "com.example.api.v1.complex"
+            self.plugin.protobuf_indexer.file_packages["complex/package/test.proto"]
+            == "com.example.api.v1.complex"
         )
 
     def test_enum_handling(self):
@@ -308,10 +311,10 @@ class TestMcpPluginErrorHandling:
         value2.number = 1
 
         # Index the enum
-        self.plugin._index_enums([enum], "enums")
+        self.plugin.protobuf_indexer.index_enums([enum], "enums")
 
         # Check that enum was indexed
-        assert ".enums.Status" in self.plugin.enum_types
+        assert ".enums.Status" in self.plugin.protobuf_indexer.enum_types
 
     def test_message_field_with_enum_type(self):
         """Test message field that references an enum type."""
@@ -335,8 +338,8 @@ class TestMcpPluginErrorHandling:
         field.label = descriptor_pb2.FieldDescriptorProto.LABEL_REQUIRED
 
         # Index both enum and message
-        self.plugin._index_enums([enum], "enumfield")
-        self.plugin._index_messages([message], "enumfield")
+        self.plugin.protobuf_indexer.index_enums([enum], "enumfield")
+        self.plugin.protobuf_indexer.index_messages([message], "enumfield")
 
         # Analyze the message
         result = self.plugin.type_analyzer.analyze_message_fields(".enumfield.ColoredObject")

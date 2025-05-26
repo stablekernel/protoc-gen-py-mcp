@@ -2,13 +2,14 @@
 
 import sys
 from dataclasses import dataclass
-from typing import Dict, Optional, Sequence, TypedDict
+from typing import Optional, Sequence, TypedDict
 
 from google.protobuf import descriptor_pb2
 from google.protobuf.compiler import plugin_pb2 as plugin
 
 from .core.code_generator import CodeGenerator
 from .core.config import ConfigManager, PluginConfig
+from .core.protobuf_indexer import ProtobufIndexer
 from .core.type_analyzer import TypeAnalyzer
 from .core.utils import ErrorUtils
 
@@ -59,13 +60,8 @@ class McpPlugin:
         self.debug_mode = self.config.debug_mode
         self.debug_level = self.config.debug_level
 
-        # Type indexing for all proto files
-        self.message_types: Dict[str, descriptor_pb2.DescriptorProto] = {}
-        self.enum_types: Dict[str, descriptor_pb2.EnumDescriptorProto] = {}
-        self.file_packages: Dict[str, str] = {}  # filename -> package name
-
-        # Comment extraction
-        self.source_comments: Dict[str, Dict[tuple, str]] = {}  # filename -> path -> comment
+        # Protobuf indexer (initialized immediately)
+        self.protobuf_indexer = ProtobufIndexer(debug_callback=self.log_debug)
 
         # Type analyzer (initialized after type indexing)
         self.type_analyzer: Optional[TypeAnalyzer] = None
@@ -123,67 +119,27 @@ class McpPlugin:
         This includes both the files we're generating for and their dependencies,
         so we can resolve any type references during code generation.
         """
-        self.log_debug("Building type index from all proto files")
+        # Delegate to protobuf indexer
+        self.protobuf_indexer.build_type_index(request)
 
-        for proto_file in request.proto_file:
-            # Store package information
-            self.file_packages[proto_file.name] = proto_file.package
-
-            # Extract comments from source code info
-            self._extract_comments(proto_file)
-
-            # Index message types
-            self._index_messages(proto_file.message_type, proto_file.package)
-
-            # Index enum types
-            self._index_enums(proto_file.enum_type, proto_file.package)
-
-            if self.config.show_type_details:
+        # Show type details if requested
+        if self.config.show_type_details:
+            for proto_file in request.proto_file:
                 self.log_verbose(
                     f"File {proto_file.name}: {len(proto_file.message_type)} messages, {len(proto_file.enum_type)} enums"
                 )
 
-        self.log_debug(
-            f"Indexed {len(self.message_types)} message types and {len(self.enum_types)} enum types"
-        )
-
         # Initialize type analyzer with indexed types
-        self.type_analyzer = TypeAnalyzer(self.message_types, self.enum_types, self)
+        self.type_analyzer = TypeAnalyzer(
+            self.protobuf_indexer.message_types, self.protobuf_indexer.enum_types, self
+        )
 
         # Initialize code generator
         self.code_generator = CodeGenerator(self.config, self.type_analyzer, self)
 
-    def _extract_comments(self, proto_file: descriptor_pb2.FileDescriptorProto) -> None:
-        """
-        Extract comments from proto file source code info.
-
-        Args:
-            proto_file: The proto file descriptor to extract comments from
-        """
-        if not proto_file.source_code_info:
-            return
-
-        comments = {}
-        for location in proto_file.source_code_info.location:
-            # Convert path list to tuple for use as dict key
-            path_key = tuple(location.path)
-
-            # Combine leading and trailing comments
-            comment_parts = []
-            if location.leading_comments:
-                comment_parts.append(location.leading_comments.strip())
-            if location.trailing_comments:
-                comment_parts.append(location.trailing_comments.strip())
-
-            if comment_parts:
-                comments[path_key] = " ".join(comment_parts)
-
-        self.source_comments[proto_file.name] = comments
-        self.log_debug(f"Extracted {len(comments)} comments from {proto_file.name}")
-
     def _get_comment(self, proto_file_name: str, path: Sequence[int]) -> str:
         """
-        Get comment for a specific path in a proto file.
+        Get comment for a specific path in a proto file (delegation to ProtobufIndexer).
 
         Args:
             proto_file_name: Name of the proto file
@@ -192,73 +148,7 @@ class McpPlugin:
         Returns:
             Comment string if found, empty string otherwise
         """
-        if proto_file_name not in self.source_comments:
-            return ""
-
-        path_key = tuple(path)
-        return self.source_comments[proto_file_name].get(path_key, "")
-
-    def _index_messages(
-        self,
-        messages: Sequence[descriptor_pb2.DescriptorProto],
-        package: str,
-        parent_name: str = "",
-    ) -> None:
-        """
-        Recursively index message types, including nested messages.
-
-        Args:
-            messages: List of message descriptors to index
-            package: The package name for these messages
-            parent_name: The parent message name for nested messages
-        """
-        for message in messages:
-            # Build the fully qualified name
-            if parent_name:
-                full_name = f".{package}.{parent_name}.{message.name}"
-            elif package:
-                full_name = f".{package}.{message.name}"
-            else:
-                full_name = f".{message.name}"
-
-            self.message_types[full_name] = message
-            self.log_debug(f"Indexed message type: {full_name}")
-
-            # Recursively index nested messages
-            if message.nested_type:
-                nested_parent = f"{parent_name}.{message.name}" if parent_name else message.name
-                self._index_messages(message.nested_type, package, nested_parent)
-
-            # Index nested enums
-            if message.enum_type:
-                nested_parent = f"{parent_name}.{message.name}" if parent_name else message.name
-                self._index_enums(message.enum_type, package, nested_parent)
-
-    def _index_enums(
-        self,
-        enums: Sequence[descriptor_pb2.EnumDescriptorProto],
-        package: str,
-        parent_name: str = "",
-    ) -> None:
-        """
-        Index enum types.
-
-        Args:
-            enums: List of enum descriptors to index
-            package: The package name for these enums
-            parent_name: The parent message name for nested enums
-        """
-        for enum in enums:
-            # Build the fully qualified name
-            if parent_name:
-                full_name = f".{package}.{parent_name}.{enum.name}"
-            elif package:
-                full_name = f".{package}.{enum.name}"
-            else:
-                full_name = f".{enum.name}"
-
-            self.enum_types[full_name] = enum
-            self.log_debug(f"Indexed enum type: {full_name}")
+        return self.protobuf_indexer.get_comment(proto_file_name, path)
 
     def generate(
         self, request: plugin.CodeGeneratorRequest, response: plugin.CodeGeneratorResponse

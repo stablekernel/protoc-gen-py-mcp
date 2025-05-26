@@ -16,7 +16,9 @@ class TestRegressions:
         from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
         self.plugin.type_analyzer = TypeAnalyzer(
-            self.plugin.message_types, self.plugin.enum_types, self.plugin
+            self.plugin.protobuf_indexer.message_types,
+            self.plugin.protobuf_indexer.enum_types,
+            self.plugin,
         )
 
     def test_parameter_ordering_fix(self):
@@ -52,7 +54,7 @@ class TestRegressions:
         optional_field2.proto3_optional = True
 
         # Set up the message in the type index
-        self.plugin.message_types[".test.MixedFieldsMessage"] = message
+        self.plugin.protobuf_indexer.message_types[".test.MixedFieldsMessage"] = message
 
         # Analyze the fields
         fields = self.plugin.type_analyzer.analyze_message_fields(".test.MixedFieldsMessage")
@@ -122,7 +124,7 @@ class TestRegressions:
         field2.oneof_index = 0  # Part of the first (and only) oneof
 
         # Set up the message in the type index
-        self.plugin.message_types[".test.OneofMessage"] = message
+        self.plugin.protobuf_indexer.message_types[".test.OneofMessage"] = message
 
         # Analyze the fields
         fields = self.plugin.type_analyzer.analyze_message_fields(".test.OneofMessage")

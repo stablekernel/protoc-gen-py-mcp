@@ -18,7 +18,9 @@ class TestMcpPlugin:
         from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
         self.plugin.type_analyzer = TypeAnalyzer(
-            self.plugin.message_types, self.plugin.enum_types, self.plugin
+            self.plugin.protobuf_indexer.message_types,
+            self.plugin.protobuf_indexer.enum_types,
+            self.plugin,
         )
         self.plugin.code_generator = CodeGenerator(
             self.plugin.config, self.plugin.type_analyzer, self.plugin
@@ -28,9 +30,9 @@ class TestMcpPlugin:
         """Test that the plugin initializes correctly."""
         assert self.plugin.config is not None
         assert self.plugin.config.debug_mode is False
-        assert self.plugin.message_types == {}
-        assert self.plugin.enum_types == {}
-        assert self.plugin.file_packages == {}
+        assert self.plugin.protobuf_indexer.message_types == {}
+        assert self.plugin.protobuf_indexer.enum_types == {}
+        assert self.plugin.protobuf_indexer.file_packages == {}
 
     def test_parameter_parsing(self):
         """Test parameter parsing functionality."""
@@ -176,7 +178,9 @@ class TestMessageFieldAnalysis:
         from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
         self.plugin.type_analyzer = TypeAnalyzer(
-            self.plugin.message_types, self.plugin.enum_types, self.plugin
+            self.plugin.protobuf_indexer.message_types,
+            self.plugin.protobuf_indexer.enum_types,
+            self.plugin,
         )
 
     def create_simple_message(self):
@@ -209,7 +213,7 @@ class TestMessageFieldAnalysis:
         """Test analyzing fields for a simple message."""
         # Set up the message in the type index
         message = self.create_simple_message()
-        self.plugin.message_types[".test.TestMessage"] = message
+        self.plugin.protobuf_indexer.message_types[".test.TestMessage"] = message
 
         result = self.plugin.type_analyzer.analyze_message_fields(".test.TestMessage")
 
@@ -530,7 +534,9 @@ class TestMcpPluginUtilityMethods:
         from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
         self.plugin.type_analyzer = TypeAnalyzer(
-            self.plugin.message_types, self.plugin.enum_types, self.plugin
+            self.plugin.protobuf_indexer.message_types,
+            self.plugin.protobuf_indexer.enum_types,
+            self.plugin,
         )
         self.plugin.code_generator = CodeGenerator(
             self.plugin.config, self.plugin.type_analyzer, self.plugin
@@ -595,7 +601,7 @@ class TestMcpPluginUtilityMethods:
         method.output_type = ".test.TestMessage"
 
         # Index the message so it can be found
-        self.plugin._index_messages([message], "test")
+        self.plugin.protobuf_indexer.index_messages([message], "test")
 
         assert self.plugin.type_analyzer.has_optional_fields(proto_file) is True
 
@@ -624,12 +630,14 @@ class TestMcpPluginUtilityMethods:
 
         # Reset plugin state and index the second message
         self.plugin = McpPlugin()
-        self.plugin._index_messages([message2], "test2")
+        self.plugin.protobuf_indexer.index_messages([message2], "test2")
         # Initialize TypeAnalyzer for tests after indexing
         from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
         self.plugin.type_analyzer = TypeAnalyzer(
-            self.plugin.message_types, self.plugin.enum_types, self.plugin
+            self.plugin.protobuf_indexer.message_types,
+            self.plugin.protobuf_indexer.enum_types,
+            self.plugin,
         )
 
         assert self.plugin.type_analyzer.has_optional_fields(proto_file2) is False
