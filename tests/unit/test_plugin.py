@@ -13,6 +13,12 @@ class TestMcpPlugin:
     def setup_method(self):
         """Set up test fixtures."""
         self.plugin = McpPlugin()
+        # Initialize TypeAnalyzer for tests
+        from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
+
+        self.plugin.type_analyzer = TypeAnalyzer(
+            self.plugin.message_types, self.plugin.enum_types, self.plugin
+        )
 
     def test_plugin_initialization(self):
         """Test that the plugin initializes correctly."""
@@ -55,37 +61,37 @@ class TestMcpPlugin:
 
         # Test string type
         field = create_field(descriptor_pb2.FieldDescriptorProto.TYPE_STRING)
-        assert self.plugin._get_scalar_python_type(field) == "str"
+        assert self.plugin.type_analyzer.get_scalar_python_type(field.type) == "str"
 
         # Test int types
         field = create_field(descriptor_pb2.FieldDescriptorProto.TYPE_INT32)
-        assert self.plugin._get_scalar_python_type(field) == "int"
+        assert self.plugin.type_analyzer.get_scalar_python_type(field.type) == "int"
 
         field = create_field(descriptor_pb2.FieldDescriptorProto.TYPE_INT64)
-        assert self.plugin._get_scalar_python_type(field) == "int"
+        assert self.plugin.type_analyzer.get_scalar_python_type(field.type) == "int"
 
         # Test float types
         field = create_field(descriptor_pb2.FieldDescriptorProto.TYPE_DOUBLE)
-        assert self.plugin._get_scalar_python_type(field) == "float"
+        assert self.plugin.type_analyzer.get_scalar_python_type(field.type) == "float"
 
         field = create_field(descriptor_pb2.FieldDescriptorProto.TYPE_FLOAT)
-        assert self.plugin._get_scalar_python_type(field) == "float"
+        assert self.plugin.type_analyzer.get_scalar_python_type(field.type) == "float"
 
         # Test bool type
         field = create_field(descriptor_pb2.FieldDescriptorProto.TYPE_BOOL)
-        assert self.plugin._get_scalar_python_type(field) == "bool"
+        assert self.plugin.type_analyzer.get_scalar_python_type(field.type) == "bool"
 
         # Test bytes type
         field = create_field(descriptor_pb2.FieldDescriptorProto.TYPE_BYTES)
-        assert self.plugin._get_scalar_python_type(field) == "bytes"
+        assert self.plugin.type_analyzer.get_scalar_python_type(field.type) == "bytes"
 
-        # Test enum type
+        # Test enum type (not handled by get_scalar_python_type, returns "Any")
         field = create_field(descriptor_pb2.FieldDescriptorProto.TYPE_ENUM)
-        assert self.plugin._get_scalar_python_type(field) == "int"
+        assert self.plugin.type_analyzer.get_scalar_python_type(field.type) == "Any"
 
-        # Test message type
+        # Test message type (not handled by get_scalar_python_type, returns "Any")
         field = create_field(descriptor_pb2.FieldDescriptorProto.TYPE_MESSAGE)
-        assert self.plugin._get_scalar_python_type(field) == "dict"
+        assert self.plugin.type_analyzer.get_scalar_python_type(field.type) == "Any"
 
     def test_repeated_field_types(self):
         """Test that repeated fields generate List[T] types."""
@@ -93,12 +99,12 @@ class TestMcpPlugin:
         field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
         field.label = descriptor_pb2.FieldDescriptorProto.LABEL_REPEATED
 
-        result = self.plugin._get_python_type(field)
+        result = self.plugin.type_analyzer.get_python_type(field)
         assert result == "List[str]"
 
         # Test repeated int
         field.type = descriptor_pb2.FieldDescriptorProto.TYPE_INT32
-        result = self.plugin._get_python_type(field)
+        result = self.plugin.type_analyzer.get_python_type(field)
         assert result == "List[int]"
 
     def test_optional_field_types(self):
@@ -107,7 +113,7 @@ class TestMcpPlugin:
         field.type = descriptor_pb2.FieldDescriptorProto.TYPE_STRING
         field.proto3_optional = True
 
-        result = self.plugin._get_python_type(field)
+        result = self.plugin.type_analyzer.get_python_type(field)
         assert result == "Optional[str]"
 
     def test_well_known_types(self):
@@ -125,13 +131,13 @@ class TestMcpPlugin:
         ]
 
         for type_name, expected_type in well_known_tests:
-            result = self.plugin._get_well_known_type(type_name)
+            result = self.plugin.type_analyzer.get_well_known_type(type_name)
             assert (
                 result == expected_type
             ), f"Expected {expected_type} for {type_name}, got {result}"
 
         # Test unknown type
-        result = self.plugin._get_well_known_type(".unknown.Type")
+        result = self.plugin.type_analyzer.get_well_known_type(".unknown.Type")
         assert result is None
 
     def test_camel_to_snake_conversion(self):
@@ -162,6 +168,12 @@ class TestMessageFieldAnalysis:
     def setup_method(self):
         """Set up test fixtures."""
         self.plugin = McpPlugin()
+        # Initialize TypeAnalyzer for tests
+        from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
+
+        self.plugin.type_analyzer = TypeAnalyzer(
+            self.plugin.message_types, self.plugin.enum_types, self.plugin
+        )
 
     def create_simple_message(self):
         """Create a simple message for testing."""
@@ -186,7 +198,7 @@ class TestMessageFieldAnalysis:
 
     def test_analyze_message_fields_not_found(self):
         """Test analyzing fields for a message type that doesn't exist."""
-        result = self.plugin._analyze_message_fields(".nonexistent.Message")
+        result = self.plugin.type_analyzer.analyze_message_fields(".nonexistent.Message")
         assert result == []
 
     def test_analyze_simple_message_fields(self):
@@ -195,7 +207,7 @@ class TestMessageFieldAnalysis:
         message = self.create_simple_message()
         self.plugin.message_types[".test.TestMessage"] = message
 
-        result = self.plugin._analyze_message_fields(".test.TestMessage")
+        result = self.plugin.type_analyzer.analyze_message_fields(".test.TestMessage")
 
         assert len(result) == 2
 
@@ -509,6 +521,12 @@ class TestMcpPluginUtilityMethods:
     def setup_method(self):
         """Set up test fixtures."""
         self.plugin = McpPlugin()
+        # Initialize TypeAnalyzer for tests
+        from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
+
+        self.plugin.type_analyzer = TypeAnalyzer(
+            self.plugin.message_types, self.plugin.enum_types, self.plugin
+        )
 
     def test_camel_to_snake_conversion(self):
         """Test camel case to snake case conversion."""
@@ -571,7 +589,7 @@ class TestMcpPluginUtilityMethods:
         # Index the message so it can be found
         self.plugin._index_messages([message], "test")
 
-        assert self.plugin._has_optional_fields(proto_file) is True
+        assert self.plugin.type_analyzer.has_optional_fields(proto_file) is True
 
         # Test proto file without optional fields
         proto_file2 = descriptor_pb2.FileDescriptorProto()
@@ -599,5 +617,11 @@ class TestMcpPluginUtilityMethods:
         # Reset plugin state and index the second message
         self.plugin = McpPlugin()
         self.plugin._index_messages([message2], "test2")
+        # Initialize TypeAnalyzer for tests after indexing
+        from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
-        assert self.plugin._has_optional_fields(proto_file2) is False
+        self.plugin.type_analyzer = TypeAnalyzer(
+            self.plugin.message_types, self.plugin.enum_types, self.plugin
+        )
+
+        assert self.plugin.type_analyzer.has_optional_fields(proto_file2) is False

@@ -13,6 +13,12 @@ class TestMcpPluginErrorHandling:
     def setup_method(self):
         """Set up test fixtures."""
         self.plugin = McpPlugin()
+        # Initialize TypeAnalyzer for tests
+        from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
+
+        self.plugin.type_analyzer = TypeAnalyzer(
+            self.plugin.message_types, self.plugin.enum_types, self.plugin
+        )
 
     def test_create_detailed_error_context_attribute_error(self):
         """Test error context creation for AttributeError."""
@@ -112,14 +118,14 @@ class TestMcpPluginErrorHandling:
         field.label = descriptor_pb2.FieldDescriptorProto.LABEL_REQUIRED
 
         # Should handle unknown message types gracefully
-        result = self.plugin._get_python_type(field)
+        result = self.plugin.type_analyzer.get_python_type(field)
         # The actual return value may vary, but it should not crash
         assert isinstance(result, str)
 
     def test_analyze_message_fields_missing_message(self):
         """Test analyzing fields for non-existent message."""
         # Try to analyze a message that doesn't exist
-        result = self.plugin._analyze_message_fields("NonExistentMessage")
+        result = self.plugin.type_analyzer.analyze_message_fields("NonExistentMessage")
 
         # Should return empty list for missing message
         assert result == []
@@ -149,7 +155,7 @@ class TestMcpPluginErrorHandling:
         self.plugin._index_messages([parent_msg], "nested")
 
         # Analyze the nested message - should handle gracefully even if structure is complex
-        result = self.plugin._analyze_message_fields("nested.Parent.Nested")
+        result = self.plugin.type_analyzer.analyze_message_fields("nested.Parent.Nested")
 
         # Should return a list (may be empty if type resolution fails)
         assert isinstance(result, list)
@@ -181,7 +187,7 @@ class TestMcpPluginErrorHandling:
         field.type_name = ".some.Message"  # Non-existent message type
 
         # For repeated message fields without proper map entry, should return List
-        result = self.plugin._get_python_type(field)
+        result = self.plugin.type_analyzer.get_python_type(field)
         assert "List" in result
 
     def test_empty_parameter_string_handling(self):
@@ -242,7 +248,7 @@ class TestMcpPluginErrorHandling:
         self.plugin._index_messages([message], "oneof")
 
         # Analyze the message - should handle oneof gracefully
-        result = self.plugin._analyze_message_fields("oneof.OneofMessage")
+        result = self.plugin.type_analyzer.analyze_message_fields("oneof.OneofMessage")
 
         # Should return a list
         assert isinstance(result, list)
@@ -329,7 +335,7 @@ class TestMcpPluginErrorHandling:
         self.plugin._index_messages([message], "enumfield")
 
         # Analyze the message
-        result = self.plugin._analyze_message_fields(".enumfield.ColoredObject")
+        result = self.plugin.type_analyzer.analyze_message_fields(".enumfield.ColoredObject")
 
         assert len(result) == 1
         color_field = result[0]

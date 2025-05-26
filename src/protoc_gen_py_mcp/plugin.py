@@ -2,13 +2,14 @@
 
 import sys
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Sequence, TypedDict
+from typing import Dict, List, Optional, Sequence, TypedDict
 
 from google.protobuf import descriptor_pb2
 from google.protobuf.compiler import plugin_pb2 as plugin
 
 from .core.config import CodeGenerationOptions, ConfigManager, PluginConfig
-from .core.utils import ErrorUtils, NamingUtils, ProtoUtils
+from .core.type_analyzer import TypeAnalyzer
+from .core.utils import ErrorUtils, NamingUtils
 
 
 class FieldInfo(TypedDict, total=False):
@@ -65,6 +66,9 @@ class McpPlugin:
         # Comment extraction
         self.source_comments: Dict[str, Dict[tuple, str]] = {}  # filename -> path -> comment
 
+        # Type analyzer (initialized after type indexing)
+        self.type_analyzer: Optional[TypeAnalyzer] = None
+
     def log_debug(self, message: str, level: str = "basic") -> None:
         """Log debug message to stderr if debug mode is enabled."""
         if self.config.debug_mode and self.config_manager.should_log_level(level):
@@ -91,7 +95,9 @@ class McpPlugin:
 
     def _has_optional_fields(self, proto_file: descriptor_pb2.FileDescriptorProto) -> bool:
         """Check if proto file has any optional fields that would need Optional typing."""
-        return ProtoUtils.has_optional_fields(proto_file, self._analyze_message_fields)
+        if self.type_analyzer:
+            return self.type_analyzer.has_optional_fields(proto_file)
+        return False
 
     def parse_parameters(self, parameter_string: str) -> None:
         """Parse plugin parameters using the configuration manager."""
@@ -136,6 +142,9 @@ class McpPlugin:
         self.log_debug(
             f"Indexed {len(self.message_types)} message types and {len(self.enum_types)} enum types"
         )
+
+        # Initialize type analyzer with indexed types
+        self.type_analyzer = TypeAnalyzer(self.message_types, self.enum_types, self)
 
     def _extract_comments(self, proto_file: descriptor_pb2.FileDescriptorProto) -> None:
         """
@@ -243,257 +252,6 @@ class McpPlugin:
 
             self.enum_types[full_name] = enum
             self.log_debug(f"Indexed enum type: {full_name}")
-
-    def _get_python_type(self, field: descriptor_pb2.FieldDescriptorProto) -> str:
-        """
-        Map a proto field type to a Python type string for type hints.
-
-        Args:
-            field: The field descriptor to analyze
-
-        Returns:
-            Python type string (e.g., "str", "int", "List[str]", "Optional[int]")
-        """
-        # Check if this is a map field first
-        if self._is_map_field(field):
-            map_types = self._get_map_types(field)
-            return f"Dict[{map_types['key']}, {map_types['value']}]"
-
-        # Handle repeated fields
-        if field.label == descriptor_pb2.FieldDescriptorProto.LABEL_REPEATED:
-            element_type = self._get_scalar_python_type(field)
-            return f"List[{element_type}]"
-
-        # Handle optional fields
-        # In proto3, fields are only truly optional if explicitly marked as proto3_optional
-        # The label might be LABEL_OPTIONAL for all proto3 fields, but that doesn't mean they're optional in MCP terms
-        is_optional = field.proto3_optional
-
-        base_type = self._get_scalar_python_type(field)
-
-        if is_optional:
-            return f"Optional[{base_type}]"
-        else:
-            return base_type
-
-    def _get_scalar_python_type(self, field: descriptor_pb2.FieldDescriptorProto) -> str:
-        """
-        Get the Python type for a scalar (non-repeated) field.
-
-        Args:
-            field: The field descriptor to analyze
-
-        Returns:
-            Python type string for the scalar type
-        """
-        type_mapping = {
-            descriptor_pb2.FieldDescriptorProto.TYPE_DOUBLE: "float",
-            descriptor_pb2.FieldDescriptorProto.TYPE_FLOAT: "float",
-            descriptor_pb2.FieldDescriptorProto.TYPE_INT64: "int",
-            descriptor_pb2.FieldDescriptorProto.TYPE_UINT64: "int",
-            descriptor_pb2.FieldDescriptorProto.TYPE_INT32: "int",
-            descriptor_pb2.FieldDescriptorProto.TYPE_FIXED64: "int",
-            descriptor_pb2.FieldDescriptorProto.TYPE_FIXED32: "int",
-            descriptor_pb2.FieldDescriptorProto.TYPE_BOOL: "bool",
-            descriptor_pb2.FieldDescriptorProto.TYPE_STRING: "str",
-            descriptor_pb2.FieldDescriptorProto.TYPE_BYTES: "bytes",
-            descriptor_pb2.FieldDescriptorProto.TYPE_UINT32: "int",
-            descriptor_pb2.FieldDescriptorProto.TYPE_SFIXED32: "int",
-            descriptor_pb2.FieldDescriptorProto.TYPE_SFIXED64: "int",
-            descriptor_pb2.FieldDescriptorProto.TYPE_SINT32: "int",
-            descriptor_pb2.FieldDescriptorProto.TYPE_SINT64: "int",
-        }
-
-        if field.type in type_mapping:
-            return type_mapping[field.type]
-        elif field.type == descriptor_pb2.FieldDescriptorProto.TYPE_ENUM:
-            # For enums, we'll use int but add a comment about the enum type
-            # TODO: Could be enhanced to use Union[int, EnumClass] or specific enum types
-            return "int"
-        elif field.type == descriptor_pb2.FieldDescriptorProto.TYPE_MESSAGE:
-            # Check for well-known types
-            if field.type_name:
-                well_known_type = self._get_well_known_type(field.type_name)
-                if well_known_type:
-                    return well_known_type
-            # For other messages, we'll use dict
-            return "dict"
-        else:
-            # Fallback for unknown types
-            self.log_debug(f"Unknown field type {field.type} for field {field.name}, using Any")
-            return "Any"
-
-    def _is_map_field(self, field: descriptor_pb2.FieldDescriptorProto) -> bool:
-        """
-        Check if a field is a map field.
-
-        Map fields are represented as repeated message fields where the message type
-        has map_entry=true option.
-        """
-        if (
-            field.label != descriptor_pb2.FieldDescriptorProto.LABEL_REPEATED
-            or field.type != descriptor_pb2.FieldDescriptorProto.TYPE_MESSAGE
-        ):
-            return False
-
-        # Get the message type for this field
-        if field.type_name in self.message_types:
-            message_type = self.message_types[field.type_name]
-            # Check if this message type has the map_entry option set
-            return message_type.options.map_entry if message_type.options else False
-
-        return False
-
-    def _get_map_types(self, field: descriptor_pb2.FieldDescriptorProto) -> Dict[str, str]:
-        """
-        Get the key and value types for a map field.
-
-        Returns a dict with 'key' and 'value' type strings.
-        """
-        if not self._is_map_field(field):
-            return {"key": "Any", "value": "Any"}
-
-        # Get the map entry message type
-        if field.type_name not in self.message_types:
-            return {"key": "Any", "value": "Any"}
-
-        map_entry = self.message_types[field.type_name]
-
-        # Map entries have exactly two fields: key (field number 1) and value (field number 2)
-        key_field = None
-        value_field = None
-
-        for entry_field in map_entry.field:
-            if entry_field.number == 1:
-                key_field = entry_field
-            elif entry_field.number == 2:
-                value_field = entry_field
-
-        if not key_field or not value_field:
-            return {"key": "Any", "value": "Any"}
-
-        # Get the Python types for key and value
-        key_type = self._get_scalar_python_type(key_field)
-        value_type = self._get_scalar_python_type(value_field)
-
-        return {"key": key_type, "value": value_type}
-
-    def _get_well_known_type(self, type_name: str) -> Optional[str]:
-        """
-        Get the Python type for well-known protobuf types.
-
-        Args:
-            type_name: The fully qualified type name (e.g., ".google.protobuf.Timestamp")
-
-        Returns:
-            Python type string if it's a well-known type, None otherwise
-        """
-        well_known_types = {
-            ".google.protobuf.Timestamp": "str",  # ISO 8601 timestamp string
-            ".google.protobuf.Duration": "str",  # Duration string (e.g., "3.5s")
-            ".google.protobuf.Any": "dict",  # Generic dict
-            ".google.protobuf.Value": "Any",  # Can be any JSON value
-            ".google.protobuf.Struct": "dict",  # JSON object
-            ".google.protobuf.ListValue": "List[Any]",  # JSON array
-            ".google.protobuf.Empty": "None",  # No content
-            ".google.protobuf.StringValue": "str",
-            ".google.protobuf.Int32Value": "int",
-            ".google.protobuf.Int64Value": "int",
-            ".google.protobuf.UInt32Value": "int",
-            ".google.protobuf.UInt64Value": "int",
-            ".google.protobuf.FloatValue": "float",
-            ".google.protobuf.DoubleValue": "float",
-            ".google.protobuf.BoolValue": "bool",
-            ".google.protobuf.BytesValue": "bytes",
-        }
-
-        return well_known_types.get(type_name)
-
-    def _analyze_message_fields(self, message_type_name: str) -> List[Dict[str, Any]]:
-        """
-        Analyze the fields of a message type to extract parameter information.
-
-        Args:
-            message_type_name: Fully qualified message type name (e.g., ".examples.v1.SetVibeRequest")
-
-        Returns:
-            List of field information dictionaries with keys:
-            - name: field name
-            - type: Python type string
-            - proto_type: Original proto field type
-            - required: whether the field is required
-            - repeated: whether the field is repeated
-            - default_value: default value if any
-        """
-        if message_type_name not in self.message_types:
-            self.log_debug(f"Message type {message_type_name} not found in type index")
-            return []
-
-        message = self.message_types[message_type_name]
-        fields = []
-
-        # Build a map of oneof names to check for real oneofs vs synthetic oneofs
-        real_oneofs = set()
-        synthetic_oneofs = set()
-
-        for oneof_index, oneof in enumerate(message.oneof_decl):
-            # Check if this oneof contains any proto3_optional fields (synthetic oneof)
-            has_proto3_optional = False
-            for field in message.field:
-                if field.oneof_index == oneof_index and field.proto3_optional:
-                    has_proto3_optional = True
-                    break
-
-            if has_proto3_optional:
-                synthetic_oneofs.add(oneof_index)
-                self.log_debug(f"Found synthetic oneof: {oneof.name}")
-            else:
-                real_oneofs.add(oneof_index)
-                self.log_debug(f"Found real oneof: {oneof.name}")
-
-        # For real oneofs, we'll include all fields but mark them as part of a oneof
-        # The code generator will handle this by making them all optional and adding validation
-
-        for field in message.field:
-            # Check if this field is part of a real oneof
-            is_part_of_real_oneof = False
-            oneof_name = None
-            if field.HasField("oneof_index") and field.oneof_index in real_oneofs:
-                is_part_of_real_oneof = True
-                oneof_name = message.oneof_decl[field.oneof_index].name
-
-            # For oneof fields, treat them as optional
-            is_optional = field.proto3_optional or is_part_of_real_oneof
-            is_repeated = field.label == descriptor_pb2.FieldDescriptorProto.LABEL_REPEATED
-            is_map = self._is_map_field(field)
-            is_required = not is_optional and not is_repeated and not is_map
-
-            # Get the base type and adjust for oneof/optional
-            base_type = self._get_python_type(field)
-            if is_part_of_real_oneof and not base_type.startswith("Optional["):
-                # Oneof fields should be Optional even if not proto3_optional
-                base_type = f"Optional[{base_type}]"
-
-            field_info = {
-                "name": field.name,
-                "type": base_type,
-                "proto_type": field.type,
-                "required": is_required,
-                "repeated": is_repeated,
-                "optional": is_optional,
-                "is_map": is_map,
-                "is_oneof": is_part_of_real_oneof,
-                "oneof_name": oneof_name,
-                "type_name": field.type_name if field.type_name else None,
-            }
-
-            fields.append(field_info)
-            self.log_debug(f"Analyzed field {field.name}: {field_info['type']}")
-
-            if self.config.show_type_details:
-                self.log_verbose(f"  Field details: {field_info}")
-
-        return fields
 
     def generate(
         self, request: plugin.CodeGeneratorRequest, response: plugin.CodeGeneratorResponse
@@ -742,7 +500,11 @@ class McpPlugin:
         method_name_converted = self._convert_tool_name(method_name, options.tool_name_case)
 
         # Analyze input message fields to generate function parameters
-        input_fields = self._analyze_message_fields(context.method.input_type)
+        input_fields = (
+            self.type_analyzer.analyze_message_fields(context.method.input_type)
+            if self.type_analyzer
+            else []
+        )
 
         # Generate function signature with parameters
         # Separate required and optional parameters to ensure proper Python syntax
@@ -988,7 +750,11 @@ class McpPlugin:
             return
 
         # Analyze input message fields
-        input_fields = self._analyze_message_fields(method.input_type)
+        input_fields = (
+            self.type_analyzer.analyze_message_fields(method.input_type)
+            if self.type_analyzer
+            else []
+        )
 
         # For client streaming, we'll accept a list of requests
         if is_client_stream:

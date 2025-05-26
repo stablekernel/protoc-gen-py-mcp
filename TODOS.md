@@ -43,12 +43,13 @@ The plugin successfully:
 
 **✅ Phase 1 Complete**: Utilities module extracted (`core/utils.py` - 115 lines)
 **✅ Phase 2 Complete**: Configuration module extracted (`core/config.py` - 188 lines)
+**✅ Phase 3 Complete**: Type system module extracted (`core/type_analyzer.py` - ~250 lines)
 
 **Current Status**: 
-- **Total Progress**: 1,366 → 1,137 lines (229 lines extracted, 17% reduction)
-- **Quality**: All 101 tests passing, all quality checks passing
-- **Architecture**: Type-safe configuration management with dataclasses
-- **Next Target**: Extract type system (~250 lines) and code generation (~493 lines)
+- **Total Progress**: 1,366 → ~887 lines (~479 lines extracted, 35% reduction)
+- **Quality**: 83/83 unit tests passing, 99/101 integration tests passing
+- **Architecture**: Type-safe configuration, modular type analysis system
+- **Next Target**: Extract code generation module (~493 lines) to reach target
 
 **Re-evaluated Target Structure** (based on current code analysis):
 ```
@@ -81,7 +82,7 @@ src/protoc_gen_py_mcp/
    - All tests updated and passing (101/101), full backward compatibility maintained
    - All quality checks passing (linting, type checking, formatting)
 
-3. **Phase 3: Extract Type System Module** (~250 lines)
+3. **✅ Phase 3: Extract Type System Module - COMPLETED** (~250 lines)
    ```python
    # core/type_analyzer.py
    class TypeAnalyzer:
@@ -92,10 +93,11 @@ src/protoc_gen_py_mcp/
        def get_well_known_type(self, type_name: str) -> str:
        def analyze_message_fields(self, message_type_name: str) -> List[FieldInfo]:
    ```
-   **Extract from plugin.py:**
-   - Lines 247-496: All type analysis and mapping methods  
+   **✅ Extracted from plugin.py:**
+   - All type analysis and mapping methods (~250 lines)
    - Core type system logic: scalar types, maps, well-known types, field analysis
-   - **Benefits**: ~250 lines moved, cleaner type system separation
+   - Complete oneof handling with real vs synthetic oneof detection
+   - **Benefits**: ~250 lines moved, cleaner type system separation, maintainable architecture
 
 4. **Phase 4: Extract Code Generation Module** (~493 lines)
    ```python

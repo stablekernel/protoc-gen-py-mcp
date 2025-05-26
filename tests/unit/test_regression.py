@@ -12,6 +12,12 @@ class TestRegressions:
     def setup_method(self):
         """Set up test fixtures."""
         self.plugin = McpPlugin()
+        # Initialize TypeAnalyzer for tests
+        from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
+
+        self.plugin.type_analyzer = TypeAnalyzer(
+            self.plugin.message_types, self.plugin.enum_types, self.plugin
+        )
 
     def test_parameter_ordering_fix(self):
         """
@@ -49,7 +55,7 @@ class TestRegressions:
         self.plugin.message_types[".test.MixedFieldsMessage"] = message
 
         # Analyze the fields
-        fields = self.plugin._analyze_message_fields(".test.MixedFieldsMessage")
+        fields = self.plugin.type_analyzer.analyze_message_fields(".test.MixedFieldsMessage")
 
         # Generate parameter strings like the actual plugin does
         required_params = []
@@ -119,7 +125,7 @@ class TestRegressions:
         self.plugin.message_types[".test.OneofMessage"] = message
 
         # Analyze the fields
-        fields = self.plugin._analyze_message_fields(".test.OneofMessage")
+        fields = self.plugin.type_analyzer.analyze_message_fields(".test.OneofMessage")
 
         # All oneof fields should be marked as optional
         assert len(fields) == 2
