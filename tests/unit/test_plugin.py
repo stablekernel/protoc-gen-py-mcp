@@ -14,10 +14,14 @@ class TestMcpPlugin:
         """Set up test fixtures."""
         self.plugin = McpPlugin()
         # Initialize TypeAnalyzer for tests
+        from src.protoc_gen_py_mcp.core.code_generator import CodeGenerator
         from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
         self.plugin.type_analyzer = TypeAnalyzer(
             self.plugin.message_types, self.plugin.enum_types, self.plugin
+        )
+        self.plugin.code_generator = CodeGenerator(
+            self.plugin.config, self.plugin.type_analyzer, self.plugin
         )
 
     def test_plugin_initialization(self):
@@ -154,7 +158,7 @@ class TestMcpPlugin:
         ]
 
         for camel, expected_snake in test_cases:
-            result = self.plugin._camel_to_snake(camel)
+            result = self.plugin.code_generator._camel_to_snake(camel)
             assert result == expected_snake, f"Expected {expected_snake}, got {result}"
 
     def test_output_file_suffix(self):
@@ -522,41 +526,45 @@ class TestMcpPluginUtilityMethods:
         """Set up test fixtures."""
         self.plugin = McpPlugin()
         # Initialize TypeAnalyzer for tests
+        from src.protoc_gen_py_mcp.core.code_generator import CodeGenerator
         from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
         self.plugin.type_analyzer = TypeAnalyzer(
             self.plugin.message_types, self.plugin.enum_types, self.plugin
         )
+        self.plugin.code_generator = CodeGenerator(
+            self.plugin.config, self.plugin.type_analyzer, self.plugin
+        )
 
     def test_camel_to_snake_conversion(self):
         """Test camel case to snake case conversion."""
-        assert self.plugin._camel_to_snake("GetUserInfo") == "get_user_info"
-        assert self.plugin._camel_to_snake("SimpleMethod") == "simple_method"
-        assert self.plugin._camel_to_snake("XMLParser") == "x_m_l_parser"
-        assert self.plugin._camel_to_snake("lowercase") == "lowercase"
-        assert self.plugin._camel_to_snake("A") == "a"
-        assert self.plugin._camel_to_snake("") == ""
+        assert self.plugin.code_generator._camel_to_snake("GetUserInfo") == "get_user_info"
+        assert self.plugin.code_generator._camel_to_snake("SimpleMethod") == "simple_method"
+        assert self.plugin.code_generator._camel_to_snake("XMLParser") == "x_m_l_parser"
+        assert self.plugin.code_generator._camel_to_snake("lowercase") == "lowercase"
+        assert self.plugin.code_generator._camel_to_snake("A") == "a"
+        assert self.plugin.code_generator._camel_to_snake("") == ""
 
     def test_convert_tool_name_with_different_cases(self):
         """Test tool name conversion with different cases."""
         # Test snake case (default)
-        result = self.plugin._convert_tool_name("GetUserInfo", "snake")
+        result = self.plugin.code_generator._convert_tool_name("GetUserInfo", "snake")
         assert result == "get_user_info"
 
         # Test camel case
-        result = self.plugin._convert_tool_name("GetUserInfo", "camel")
+        result = self.plugin.code_generator._convert_tool_name("GetUserInfo", "camel")
         assert result == "getUserInfo"
 
         # Test pascal case
-        result = self.plugin._convert_tool_name("GetUserInfo", "pascal")
+        result = self.plugin.code_generator._convert_tool_name("GetUserInfo", "pascal")
         assert result == "GetUserInfo"
 
         # Test kebab case
-        result = self.plugin._convert_tool_name("GetUserInfo", "kebab")
+        result = self.plugin.code_generator._convert_tool_name("GetUserInfo", "kebab")
         assert result == "get-user-info"
 
         # Test invalid case (should default to snake)
-        result = self.plugin._convert_tool_name("GetUserInfo", "invalid")
+        result = self.plugin.code_generator._convert_tool_name("GetUserInfo", "invalid")
         assert result == "get_user_info"
 
     def test_has_optional_fields(self):

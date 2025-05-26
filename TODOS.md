@@ -42,14 +42,14 @@ The plugin successfully:
 ### 📋 Plan 1: Split Large plugin.py File (1366 → 1137 lines, ~200 target)
 
 **✅ Phase 1 Complete**: Utilities module extracted (`core/utils.py` - 115 lines)
-**✅ Phase 2 Complete**: Configuration module extracted (`core/config.py` - 188 lines)
+**✅ Phase 2 Complete**: Configuration module extracted (`core/config.py` - 188 lines)  
 **✅ Phase 3 Complete**: Type system module extracted (`core/type_analyzer.py` - ~250 lines)
 
 **Current Status**: 
-- **Total Progress**: 1,366 → ~887 lines (~479 lines extracted, 35% reduction)
-- **Quality**: 83/83 unit tests passing, 99/101 integration tests passing
+- **Total Progress**: 1,366 → 903 lines (463 lines extracted, 34% reduction)
+- **Quality**: 101/101 tests passing, all quality checks clean
 - **Architecture**: Type-safe configuration, modular type analysis system
-- **Next Target**: Extract code generation module (~493 lines) to reach target
+- **Next Target**: Extract code generation module (~280 lines) to reach target
 
 **Re-evaluated Target Structure** (based on current code analysis):
 ```
@@ -99,24 +99,27 @@ src/protoc_gen_py_mcp/
    - Complete oneof handling with real vs synthetic oneof detection
    - **Benefits**: ~250 lines moved, cleaner type system separation, maintainable architecture
 
-4. **Phase 4: Extract Code Generation Module** (~493 lines)
+4. **🔄 Phase 4: Extract Code Generation Module - NEXT** (~280 lines)
    ```python
    # core/code_generator.py
    class CodeGenerator:
-       def generate_file_content(self, proto_file, services) -> str:
+       def generate_file_content(self, proto_file, config, type_analyzer) -> str:
+       def generate_method_tool(self, context, options) -> List[str]:
+       def generate_grpc_call(self, context) -> List[str]:
+       def generate_streaming_tool(self, method, context) -> List[str]:
        def generate_header(self) -> List[str]:
        def generate_imports(self, proto_file) -> List[str]:
-       def generate_service(self, service, proto_file) -> List[str]:
-       def generate_method_tool(self, context, options) -> None:
-       def generate_grpc_call(self, method, service) -> List[str]:
-       def handle_streaming_method(self, method) -> str:
    ```
    **Extract from plugin.py:**
-   - Lines 577-1070: All code generation methods
-   - Core generation logic: headers, imports, services, methods, streaming
-   - **Benefits**: ~493 lines moved, focused code generation responsibility
+   - All code generation methods (~280 lines): file content, method tools, gRPC calls
+   - Template generation logic: headers, imports, service implementations  
+   - Streaming method handling and adaptations
+   - **Benefits**: ~280 lines moved, plugin.py → ~620 lines, focused code generation
 
-**Final Result**: plugin.py reduced to ~200 lines (orchestration only)
+5. **Phase 5: Final Cleanup** (~100 lines) 
+   - Extract remaining protobuf indexing methods to separate module
+   - Consolidate logging methods
+   - **Final Result**: plugin.py reduced to ~200 lines (orchestration only)
 
 **Updated Target Structure** (Post-Phase 2):
 ```

@@ -14,10 +14,14 @@ class TestMcpPluginErrorHandling:
         """Set up test fixtures."""
         self.plugin = McpPlugin()
         # Initialize TypeAnalyzer for tests
+        from src.protoc_gen_py_mcp.core.code_generator import CodeGenerator
         from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
         self.plugin.type_analyzer = TypeAnalyzer(
             self.plugin.message_types, self.plugin.enum_types, self.plugin
+        )
+        self.plugin.code_generator = CodeGenerator(
+            self.plugin.config, self.plugin.type_analyzer, self.plugin
         )
 
     def test_create_detailed_error_context_attribute_error(self):
