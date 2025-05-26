@@ -70,7 +70,7 @@ class CodeGenerator:
         # Generate main block
         lines.extend(["", "if __name__ == '__main__':", "    mcp.run()"])
 
-        return "\n".join(lines)
+        return "\n".join(lines) + "\n"
 
     def _generate_header(self, proto_file: descriptor_pb2.FileDescriptorProto) -> List[str]:
         """Generate file header with metadata."""
@@ -104,7 +104,7 @@ class CodeGenerator:
         )
 
         # Proto-specific imports
-        proto_name = proto_file.name.replace(".proto", "")
+        proto_name = proto_file.name.replace(".proto", "").replace("/", ".")
         lines.extend(
             [
                 f"import {proto_name}_pb2",
@@ -149,6 +149,10 @@ class CodeGenerator:
 
         # Generate each method in the service
         for method_index, method in enumerate(service.method):
+            # Add extra blank line before subsequent methods (PEP8: 2 blank lines between functions)
+            if method_index > 0:
+                lines.append("")
+
             # Create context inline to avoid circular import
             context = {
                 "method": method,
@@ -242,7 +246,7 @@ class CodeGenerator:
         proto_file = context["proto_file"]
         method = context["method"]
         service = context["service"]
-        proto_name = proto_file.name.replace(".proto", "")
+        proto_name = proto_file.name.replace(".proto", "").replace("/", ".")
         input_type_name = method.input_type.split(".")[-1]  # Get the simple name
 
         lines.extend(
