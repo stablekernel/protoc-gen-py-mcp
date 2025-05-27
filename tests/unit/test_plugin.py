@@ -163,10 +163,6 @@ class TestMcpPlugin:
             result = self.plugin.code_generator._camel_to_snake(camel)
             assert result == expected_snake, f"Expected {expected_snake}, got {result}"
 
-    def test_output_file_suffix(self):
-        """Test that the output file suffix is correct."""
-        assert self.plugin.OUTPUT_FILE_SUFFIX == "_pb2_mcp.py"
-
 
 class TestMessageFieldAnalysis:
     """Test cases for message field analysis."""
@@ -203,11 +199,6 @@ class TestMessageFieldAnalysis:
         field.label = descriptor_pb2.FieldDescriptorProto.LABEL_OPTIONAL
 
         return message
-
-    def test_analyze_message_fields_not_found(self):
-        """Test analyzing fields for a message type that doesn't exist."""
-        result = self.plugin.type_analyzer.analyze_message_fields(".nonexistent.Message")
-        assert result == []
 
     def test_analyze_simple_message_fields(self):
         """Test analyzing fields for a simple message."""

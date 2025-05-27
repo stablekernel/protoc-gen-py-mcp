@@ -314,9 +314,6 @@ make check-all
 # Run all tests
 make test
 
-# Test with coverage
-make coverage
-
 # Integration tests
 make test-integration
 ```

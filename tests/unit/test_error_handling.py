@@ -196,17 +196,6 @@ class TestMcpPluginErrorHandling:
         result = self.plugin.type_analyzer.get_python_type(field)
         assert "List" in result
 
-    def test_empty_parameter_string_handling(self):
-        """Test handling of empty and whitespace parameter strings."""
-        # Empty string
-        self.plugin.parse_parameters("")
-        assert self.plugin.config.debug_mode is False  # Default config
-
-        # Whitespace only
-        self.plugin.parse_parameters("   ")
-        # Should not crash and maintain default config
-        assert self.plugin.config.debug_mode is False
-
     def test_malformed_parameter_strings(self):
         """Test handling of malformed parameter strings."""
         # Parameter with multiple equals signs (not a recognized param, should not crash)

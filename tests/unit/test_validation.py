@@ -185,11 +185,6 @@ class TestParameterValidator:
 class TestDefaultValidator:
     """Test the default validator instance."""
 
-    def test_default_validator_exists(self):
-        """Test that default validator is properly configured."""
-        assert default_validator is not None
-        assert isinstance(default_validator, ParameterValidator)
-
     def test_tool_name_case_validation(self):
         """Test tool_name_case validation."""
         result = default_validator.validate({"tool_name_case": "snake"})

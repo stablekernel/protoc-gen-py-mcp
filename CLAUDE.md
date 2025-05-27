@@ -126,6 +126,7 @@ def main() -> None:
 - Use async test patterns where appropriate
 - Test both success and error cases
 - Include integration tests for generated code
+- Take a pragmatic approach to test coverage. Do not aim for a %
 
 ## Documentation
 

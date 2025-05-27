@@ -52,9 +52,7 @@ dev = [
     "mypy>=1.8.0",
     "black>=24.0.0",
     "isort>=5.13.0",
-    "coverage>=7.4.0",
     "types-protobuf>=5.26.0",
-    "pytest-cov>=6.1.1",
 ]
 
 [tool.black]
@@ -107,20 +105,3 @@ exclude = [
     "examples/gen/",
 ]
 
-[tool.coverage.run]
-source = ["src"]
-omit = ["*/tests/*", "*/test_*"]
-
-[tool.coverage.report]
-exclude_lines = [
-    "pragma: no cover",
-    "def __repr__",
-    "if self.debug:",
-    "if settings.DEBUG",
-    "raise AssertionError",
-    "raise NotImplementedError",
-    "if 0:",
-    "if __name__ == .__main__.:",
-    "class .*\\bProtocol\\):",
-    "@(abc\\.)?abstractmethod",
-]
