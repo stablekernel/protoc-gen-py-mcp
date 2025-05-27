@@ -1,6 +1,7 @@
 """Protobuf type indexing and comment extraction for MCP code generation."""
 
-from typing import Callable, Dict, Optional, Sequence
+import logging
+from typing import Dict, Sequence
 
 from google.protobuf import descriptor_pb2
 from google.protobuf.compiler import plugin_pb2 as plugin
@@ -16,22 +17,13 @@ class ProtobufIndexer:
     - Support nested type resolution and fully qualified naming
     """
 
-    def __init__(self, debug_callback: Optional[Callable[[str], None]] = None):
-        """
-        Initialize the protobuf indexer.
-
-        Args:
-            debug_callback: Optional callback function for debug logging
-        """
+    def __init__(self) -> None:
+        """Initialize the protobuf indexer."""
         self.message_types: Dict[str, descriptor_pb2.DescriptorProto] = {}
         self.enum_types: Dict[str, descriptor_pb2.EnumDescriptorProto] = {}
         self.file_packages: Dict[str, str] = {}  # filename -> package name
         self.source_comments: Dict[str, Dict[tuple, str]] = {}  # filename -> path -> comment
-        self.debug_callback = debug_callback or self._default_debug
-
-    def _default_debug(self, message: str) -> None:  # noqa: ARG002
-        """Default debug callback that does nothing."""
-        pass
+        self.logger = logging.getLogger("protoc-gen-py-mcp")
 
     def build_type_index(self, request: plugin.CodeGeneratorRequest) -> None:
         """
@@ -43,7 +35,7 @@ class ProtobufIndexer:
         Args:
             request: The CodeGeneratorRequest containing all proto files
         """
-        self.debug_callback("Building type index from all proto files")
+        self.logger.debug("Building type index from all proto files")
 
         for proto_file in request.proto_file:
             # Store package information
@@ -58,7 +50,7 @@ class ProtobufIndexer:
             # Index enum types
             self.index_enums(proto_file.enum_type, proto_file.package)
 
-        self.debug_callback(
+        self.logger.debug(
             f"Indexed {len(self.message_types)} message types and {len(self.enum_types)} enum types"
         )
 
@@ -88,7 +80,7 @@ class ProtobufIndexer:
                 comments[path_key] = " ".join(comment_parts)
 
         self.source_comments[proto_file.name] = comments
-        self.debug_callback(f"Extracted {len(comments)} comments from {proto_file.name}")
+        self.logger.debug(f"Extracted {len(comments)} comments from {proto_file.name}")
 
     def get_comment(self, proto_file_name: str, path: Sequence[int]) -> str:
         """
@@ -131,7 +123,7 @@ class ProtobufIndexer:
                 full_name = f".{message.name}"
 
             self.message_types[full_name] = message
-            self.debug_callback(f"Indexed message type: {full_name}")
+            self.logger.debug(f"Indexed message type: {full_name}")
 
             # Recursively index nested messages
             if message.nested_type:
@@ -167,4 +159,4 @@ class ProtobufIndexer:
                 full_name = f".{enum.name}"
 
             self.enum_types[full_name] = enum
-            self.debug_callback(f"Indexed enum type: {full_name}")
+            self.logger.debug(f"Indexed enum type: {full_name}")

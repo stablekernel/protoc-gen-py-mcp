@@ -1,6 +1,7 @@
 """Code generation for Python MCP server from protobuf service definitions."""
 
-from typing import Any, Dict, List, Optional
+import logging
+from typing import Any, Dict, List
 
 from google.protobuf import descriptor_pb2
 
@@ -15,23 +16,16 @@ class CodeGenerator:
         self,
         config: PluginConfig,
         type_analyzer: TypeAnalyzer,
-        logger: Optional[Any] = None,
     ):
         """Initialize the code generator.
 
         Args:
             config: Plugin configuration
             type_analyzer: Type analyzer for protobuf types
-            logger: Optional logger for debug output
         """
         self.config = config
         self.type_analyzer = type_analyzer
-        self.logger = logger
-
-    def log_debug(self, message: str, level: str = "basic") -> None:
-        """Log debug message if logger is available."""
-        if self.logger:
-            self.logger.log_debug(message, level)
+        self.logger = logging.getLogger("protoc-gen-py-mcp")
 
     def generate_file_content(
         self,

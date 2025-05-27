@@ -1,5 +1,6 @@
 """Type system analysis for protobuf to Python type mapping."""
 
+import logging
 from typing import Any, Dict, List, Optional
 
 from google.protobuf import descriptor_pb2
@@ -12,23 +13,19 @@ class TypeAnalyzer:
         self,
         message_types: Dict[str, descriptor_pb2.DescriptorProto],
         enum_types: Dict[str, descriptor_pb2.EnumDescriptorProto],
-        logger: Optional[Any] = None,
+        show_type_details: bool = False,
     ):
         """Initialize the type analyzer.
 
         Args:
             message_types: Dictionary mapping type names to message descriptors
             enum_types: Dictionary mapping type names to enum descriptors
-            logger: Optional logger for debug output
+            show_type_details: Whether to show detailed type information
         """
         self.message_types = message_types
         self.enum_types = enum_types
-        self.logger = logger
-
-    def log_debug(self, message: str, level: str = "basic") -> None:
-        """Log debug message if logger is available."""
-        if self.logger:
-            self.logger.log_debug(message, level)
+        self.show_type_details = show_type_details
+        self.logger = logging.getLogger("protoc-gen-py-mcp")
 
     def get_python_type(self, field: descriptor_pb2.FieldDescriptorProto) -> str:
         """
@@ -209,11 +206,11 @@ class TypeAnalyzer:
         """
         message_type = self.message_types.get(message_type_name)
         if not message_type:
-            self.log_debug(f"Message type {message_type_name} not found in index")
+            self.logger.debug(f"Message type {message_type_name} not found in index")
             return []
 
         fields = []
-        self.log_debug(
+        self.logger.debug(
             f"Analyzing message {message_type_name} with {len(message_type.field)} fields"
         )
 
@@ -236,10 +233,10 @@ class TypeAnalyzer:
 
             if has_proto3_optional:
                 synthetic_oneofs.add(oneof_index)
-                self.log_debug(f"Found synthetic oneof: {oneof.name}")
+                self.logger.debug(f"Found synthetic oneof: {oneof.name}")
             else:
                 real_oneofs.add(oneof_index)
-                self.log_debug(f"Found real oneof: {oneof.name}")
+                self.logger.debug(f"Found real oneof: {oneof.name}")
 
         for field in message_type.field:
             # Check if this field is part of a real oneof
@@ -281,14 +278,10 @@ class TypeAnalyzer:
                 field_info["repeated"] = False  # Maps are not treated as repeated in API
 
             fields.append(field_info)
-            self.log_debug(f"Analyzed field {field.name}: {field_info['type']}")
+            self.logger.debug(f"Analyzed field {field.name}: {field_info['type']}")
 
-            if (
-                self.logger
-                and hasattr(self.logger, "config")
-                and self.logger.config.show_type_details
-            ):
-                self.log_debug(f"  Field details: {field_info}")
+            if self.show_type_details:
+                self.logger.debug(f"  Field details: {field_info}")
 
         return fields
 

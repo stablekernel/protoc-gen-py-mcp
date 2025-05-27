@@ -18,12 +18,13 @@ class TestMcpPlugin:
         from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
         self.plugin.type_analyzer = TypeAnalyzer(
-            self.plugin.protobuf_indexer.message_types,
-            self.plugin.protobuf_indexer.enum_types,
-            self.plugin,
+            message_types=self.plugin.protobuf_indexer.message_types,
+            enum_types=self.plugin.protobuf_indexer.enum_types,
+            show_type_details=False,
         )
         self.plugin.code_generator = CodeGenerator(
-            self.plugin.config, self.plugin.type_analyzer, self.plugin
+            config=self.plugin.config,
+            type_analyzer=self.plugin.type_analyzer,
         )
 
     def test_plugin_initialization(self):
@@ -174,9 +175,9 @@ class TestMessageFieldAnalysis:
         from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
         self.plugin.type_analyzer = TypeAnalyzer(
-            self.plugin.protobuf_indexer.message_types,
-            self.plugin.protobuf_indexer.enum_types,
-            self.plugin,
+            message_types=self.plugin.protobuf_indexer.message_types,
+            enum_types=self.plugin.protobuf_indexer.enum_types,
+            show_type_details=False,
         )
 
     def create_simple_message(self):
@@ -418,46 +419,67 @@ class TestMcpPluginLogging:
 
     def test_log_debug_with_levels(self, capsys):
         """Test debug logging with different levels."""
+        import logging
+
         # Test basic level logging
         self.plugin.parse_parameters("debug=basic")
-        self.plugin.log_debug("test message", "basic")
+        logger = logging.getLogger("protoc-gen-py-mcp")
+        logger.info("test message")
         captured = capsys.readouterr()
         assert "[protoc-gen-py-mcp] test message" in captured.err
 
         # Clear output
         capsys.readouterr()
 
-        # Test verbose message with basic level (should not log)
-        self.plugin.log_debug("verbose message", "verbose")
+        # Test debug message with basic level (should log since basic now uses DEBUG level)
+        logger.debug("verbose message")
         captured = capsys.readouterr()
-        # Should contain parse output but not the verbose message
-        assert "verbose message" not in captured.err
+        # Should contain the debug message since basic level now shows debug messages
+        assert "verbose message" in captured.err
 
     def test_log_verbose(self, capsys):
         """Test verbose logging."""
+        import logging
+
         self.plugin.parse_parameters("debug=verbose")
-        self.plugin.log_verbose("verbose message")
+        logger = logging.getLogger("protoc-gen-py-mcp")
+        logger.debug("verbose message")
         captured = capsys.readouterr()
         assert "[protoc-gen-py-mcp] verbose message" in captured.err
 
     def test_log_trace(self, capsys):
         """Test trace logging."""
+        import logging
+
         self.plugin.parse_parameters("debug=trace")
-        self.plugin.log_trace("trace message")
+        logger = logging.getLogger("protoc-gen-py-mcp")
+        logger.debug("trace message")
         captured = capsys.readouterr()
         assert "[protoc-gen-py-mcp] trace message" in captured.err
 
     def test_log_error(self, capsys):
         """Test error logging."""
-        self.plugin.log_error("error message")
+        import logging
+
+        from src.protoc_gen_py_mcp.core.logger import configure_logging
+
+        configure_logging(debug_mode=False, debug_level="basic")
+        logger = logging.getLogger("protoc-gen-py-mcp")
+        logger.error("error message")
         captured = capsys.readouterr()
-        assert "[protoc-gen-py-mcp ERROR] error message" in captured.err
+        assert "[protoc-gen-py-mcp] error message" in captured.err
 
     def test_log_warning(self, capsys):
         """Test warning logging."""
-        self.plugin.log_warning("warning message")
+        import logging
+
+        from src.protoc_gen_py_mcp.core.logger import configure_logging
+
+        configure_logging(debug_mode=False, debug_level="basic")
+        logger = logging.getLogger("protoc-gen-py-mcp")
+        logger.warning("warning message")
         captured = capsys.readouterr()
-        assert "[protoc-gen-py-mcp WARNING] warning message" in captured.err
+        assert "[protoc-gen-py-mcp] warning message" in captured.err
 
 
 class TestMcpPluginGrpcConfiguration:
@@ -525,12 +547,13 @@ class TestMcpPluginUtilityMethods:
         from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
         self.plugin.type_analyzer = TypeAnalyzer(
-            self.plugin.protobuf_indexer.message_types,
-            self.plugin.protobuf_indexer.enum_types,
-            self.plugin,
+            message_types=self.plugin.protobuf_indexer.message_types,
+            enum_types=self.plugin.protobuf_indexer.enum_types,
+            show_type_details=False,
         )
         self.plugin.code_generator = CodeGenerator(
-            self.plugin.config, self.plugin.type_analyzer, self.plugin
+            config=self.plugin.config,
+            type_analyzer=self.plugin.type_analyzer,
         )
 
     def test_camel_to_snake_conversion(self):
@@ -626,9 +649,9 @@ class TestMcpPluginUtilityMethods:
         from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
         self.plugin.type_analyzer = TypeAnalyzer(
-            self.plugin.protobuf_indexer.message_types,
-            self.plugin.protobuf_indexer.enum_types,
-            self.plugin,
+            message_types=self.plugin.protobuf_indexer.message_types,
+            enum_types=self.plugin.protobuf_indexer.enum_types,
+            show_type_details=False,
         )
 
         assert self.plugin.type_analyzer.has_optional_fields(proto_file2) is False

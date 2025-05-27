@@ -18,12 +18,13 @@ class TestMcpPluginErrorHandling:
         from src.protoc_gen_py_mcp.core.type_analyzer import TypeAnalyzer
 
         self.plugin.type_analyzer = TypeAnalyzer(
-            self.plugin.protobuf_indexer.message_types,
-            self.plugin.protobuf_indexer.enum_types,
-            self.plugin,
+            message_types=self.plugin.protobuf_indexer.message_types,
+            enum_types=self.plugin.protobuf_indexer.enum_types,
+            show_type_details=False,
         )
         self.plugin.code_generator = CodeGenerator(
-            self.plugin.config, self.plugin.type_analyzer, self.plugin
+            config=self.plugin.config,
+            type_analyzer=self.plugin.type_analyzer,
         )
 
     def test_create_detailed_error_context_attribute_error(self):
