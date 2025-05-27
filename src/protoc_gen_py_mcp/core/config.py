@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import Dict, Optional
 
-from ..validation import default_validator
+from .validation import default_validator
 
 
 @dataclass

@@ -2,7 +2,7 @@
 
 import pytest
 
-from protoc_gen_py_mcp.validation import (
+from src.protoc_gen_py_mcp.core.validation import (
     ParameterValidator,
     ValidationResult,
     ValidationRule,
