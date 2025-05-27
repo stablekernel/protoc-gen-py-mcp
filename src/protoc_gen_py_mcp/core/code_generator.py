@@ -218,7 +218,7 @@ class CodeGenerator:
         lines = [
             f'@mcp.tool(name="{method_name_converted}", description="Generated tool for {method_name} RPC method")',
             f"def {method_name_converted.lower()}({params_str}):",
-            f'    """Tool for {method_name} RPC method."""',
+            f'    """Tool for {method_name} RPC method."""', #TODO: Improve this with the comment of the method.
         ]
 
         # Generate method implementation
