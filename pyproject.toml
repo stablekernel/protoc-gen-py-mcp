@@ -5,10 +5,15 @@ description = "Build MCP servers from proto files"
 requires-python = ">=3.10"
 readme = "README.md"
 license = "Apache-2.0"
-dependencies = ["fastmcp>=2.3.1", "protobuf>=5.26.1,<6.0", "grpcio-tools>=1.71.0"]
+dependencies = [
+  "fastmcp>=2.3.1",
+  "protobuf>=5.26.1,<6.0",
+  "grpcio-tools>=1.71.0",
+]
 
 [project.scripts]
 protoc-gen-py-mcp = "protoc_gen_py_mcp.plugin:main"
+mcp-vibe = "mcp_vibe.mcp_vibe_app.server:main"
 
 [project.urls]
 Repository = "https://github.com/stablekernel/protoc-gen-py-mcp"
@@ -47,12 +52,12 @@ venv = ".venv"
 
 [dependency-groups]
 dev = [
-    "pytest>=8.3.5",
-    "flake8>=7.0.0",
-    "mypy>=1.8.0",
-    "black>=24.0.0",
-    "isort>=5.13.0",
-    "types-protobuf>=5.26.0",
+  "pytest>=8.3.5",
+  "flake8>=7.0.0",
+  "mypy>=1.8.0",
+  "black>=24.0.0",
+  "isort>=5.13.0",
+  "types-protobuf>=5.26.0",
 ]
 
 [tool.black]
@@ -97,11 +102,4 @@ warn_unused_ignores = true
 show_error_codes = true
 namespace_packages = true
 mypy_path = "src"
-exclude = [
-    "protos/",
-    "build/",
-    "dist/",
-    "src/mcp_vibe/",
-    "examples/gen/",
-]
-
+exclude = ["protos/", "build/", "dist/", "src/mcp_vibe/", "examples/gen/"]
